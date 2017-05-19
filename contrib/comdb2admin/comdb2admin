@@ -15,6 +15,14 @@ if [[ $# -lt 1 ]]; then
     usage
 fi
 
+# Check whether supervisor is installed.
+supervisorctl -h > /dev/null 2>&1 ||
+{
+    echo "ERROR: supervisorctl not found."
+    echo "Check whether supervosor is installed. Aborting.";
+    exit 1;
+}
+
 [[ -z "$USER" ]] && export USER=$(id -un)
 
 task=$1
