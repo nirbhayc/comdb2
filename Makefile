@@ -124,14 +124,14 @@ install: all
 	install -D contrib/comdb2admin/comdb2admin $(DESTDIR)$(PREFIX)/bin/comdb2admin
 	[ -z "$(DESTDIR)" ] && . db/installinfo || true
 
-jdbc-docker-build-container:
-	docker build -t jdbc-docker-builder:$(VERSION) -f docker/Dockerfile.jdbc.build docker
+docker-build-jdbc-container:
+	docker build -t comdb2-jdbc:$(VERSION) -f docker/Dockerfile.jdbc.build docker
 
-jdbc-docker-build: jdbc-docker-build-container
+docker-run-jdbc: jdbc-build-jdbc-container
 	docker run \
 		--env HOME=/tmp \
 		-v $(BASEDIR):/jdbc.build \
 		-w /jdbc.build \
-		jdbc-docker-builder:$(VERSION) \
+		comdb2-jdbc:$(VERSION) \
 		/bin/maven/bin/mvn -f /jdbc.build/cdb2jdbc/pom.xml clean install
 
