@@ -75,10 +75,12 @@ static void *mtrap_thd(void *voidarg)
 {
     struct mtrap_item *item = voidarg;
     pthread_t me = pthread_self();
-    struct thr_handle *thr_self = thrman_register(THRTYPE_MTRAP);
+    struct thr_handle *thr_self;
     int rc;
 
     thread_started("mtrap");
+    /* Register the thread. */
+    thr_self = thrman_register(THRTYPE_MTRAP);
 
     backend_thread_event(thedb, COMDB2_THR_EVENT_START_RDWR);
 

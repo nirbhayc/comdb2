@@ -1726,6 +1726,8 @@ static int vdbeMergeEngineStep(
 static void *vdbeSorterFlushThread(void *pCtx){
   SortSubtask *pTask = (SortSubtask*)pCtx;
   int rc;                         /* Return code */
+  /* Register the thread */
+  thrman_register(THRTYPE_UNKNOWN);
   assert( pTask->bDone==0 );
   rc = vdbeSorterListToPMA(pTask, &pTask->list);
   pTask->bDone = 1;
@@ -1964,6 +1966,8 @@ static int vdbeIncrPopulate(IncrMerger *pIncr){
 */
 static void *vdbeIncrPopulateThread(void *pCtx){
   IncrMerger *pIncr = (IncrMerger*)pCtx;
+  /* Register the thread */
+  thrman_register(THRTYPE_UNKNOWN);
   void *pRet = SQLITE_INT_TO_PTR( vdbeIncrPopulate(pIncr) );
   pIncr->pTask->bDone = 1;
   return pRet;
@@ -2295,6 +2299,8 @@ static int vdbePmaReaderIncrMergeInit(PmaReader *pReadr, int eMode){
 */
 static void *vdbePmaReaderBgIncrInit(void *pCtx){
   PmaReader *pReader = (PmaReader*)pCtx;
+  /* Register the thread */
+  thrman_register(THRTYPE_UNKNOWN);
   void *pRet = SQLITE_INT_TO_PTR(
                   vdbePmaReaderIncrMergeInit(pReader,INCRINIT_TASK)
                );

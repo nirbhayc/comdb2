@@ -1406,6 +1406,10 @@ void *read_client_socket(void *in)
     int rc;
     struct client_info *info = in;
     struct sqlclntstate *clnt = info->clnt;
+
+    /* Register the thread */
+    thrman_register(THRTYPE_UNKNOWN);
+
     rc = pthread_mutex_trylock(&lua_debug_mutex);
     if (rc) {
         free(info);
@@ -2686,6 +2690,10 @@ static void *dispatch_lua_thread(void *lt)
 {
     dbthread_t *l_thread = lt;
     struct sqlclntstate clnt;
+
+    /* Register the thread */
+    thrman_register(THRTYPE_UNKNOWN);
+
     reset_clnt(&clnt, l_thread->clnt->sb, 1);
     clnt.want_stored_procedure_trace =
         l_thread->clnt->want_stored_procedure_trace;

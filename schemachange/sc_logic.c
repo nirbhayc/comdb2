@@ -463,6 +463,9 @@ int do_schema_change_tran(sc_arg_t *arg)
         abort();
     }
 
+    /* Register the thread */
+    thrman_register(THRTYPE_UNKNOWN);
+
     struct schema_change_type *s = iq->sc;
     s->iq = iq;
     pthread_mutex_lock(&s->mtx);
@@ -512,6 +515,10 @@ int do_schema_change_tran(sc_arg_t *arg)
 int do_schema_change(struct schema_change_type *s)
 {
     struct ireq iq;
+
+    /* Register the thread */
+    thrman_register(THRTYPE_UNKNOWN);
+
     init_fake_ireq(thedb, &iq);
     iq.sc = s;
     if (s->db == NULL) {
@@ -576,7 +583,12 @@ void *sc_resuming_watchdog(void *p)
     int backout_schema_change(struct ireq * iq);
     struct ireq iq;
     struct schema_change_type *stored_sc = NULL;
-    int time = bdb_attr_get(thedb->bdb_attr, BDB_ATTR_SC_RESUME_WATCHDOG_TIMER);
+    int time;
+
+    /* Register the thread */
+    thrman_register(THRTYPE_UNKNOWN);
+
+    time = bdb_attr_get(thedb->bdb_attr, BDB_ATTR_SC_RESUME_WATCHDOG_TIMER);
     logmsg(LOGMSG_INFO, "%s: started, sleeping %d seconds\n", __func__, time);
     sleep(time);
     logmsg(LOGMSG_INFO, "%s: waking up\n", __func__);

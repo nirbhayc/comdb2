@@ -142,6 +142,10 @@ static void *trigger_start_int(void *name_)
 {
     GET_BDB_STATE_CAST(bdb_state, void *);
     char name[strlen(name_) + 1];
+
+    /* Register the thread */
+    thrman_register(THRTYPE_TRIGGER);
+
     strcpy(name, name_);
     free(name_);
     trigger_reg_t *reg;

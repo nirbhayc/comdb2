@@ -689,6 +689,10 @@ void bdb_osql_trn_clients_status();
 void *handle_exit_thd(void *arg) 
 {
     static pthread_mutex_t exiting_lock = PTHREAD_MUTEX_INITIALIZER;
+
+    /* Register the thread */
+    thrman_register(THRTYPE_EXIT_HANDLER);
+
     pthread_mutex_lock(&exiting_lock);
     if( gbl_exit ) {
        pthread_mutex_unlock(&exiting_lock);

@@ -51,7 +51,7 @@ static const char revid[] =
 #include "schema_lk.h"
 #include "logmsg.h"
 #include <errno.h>
-
+#include "thrman.h"
 
 #ifndef TESTSUITE
 void bdb_get_writelock(void *bdb_state,
@@ -5738,6 +5738,9 @@ del_thd(void *arg)
 	DB *dbp;
 	char *repdbname;
 	int ret;
+
+        /* Register the thread */
+        thrman_register(THRTYPE_UNKNOWN);
 
 	dbenv = delr->dbenv;
 

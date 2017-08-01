@@ -313,6 +313,10 @@ static void *finalize_schema_change_thd_tran(void *varg)
     finalize_t *arg = varg;
     void *trans = arg->trans;
     struct ireq *iq = arg->iq;
+
+    /* Register the thread */
+    thrman_register(THRTYPE_UNKNOWN);
+
     free(arg);
     finalize_schema_change_thd(iq, trans);
     return NULL;

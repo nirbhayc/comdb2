@@ -306,6 +306,9 @@ run_lthread(arg)
 #else
 	tid = 0;
 #endif
+        /* Register the thread */
+        thrman_register(THRTYPE_UNKNOWN);
+
 	printf("Locker: ID %03lu (PID: %lu; TID: %lx)\n",
 	    id, (u_long)getpid(), tid);
 
@@ -495,6 +498,9 @@ run_wthread(arg)
 #else
 	tid = 0;
 #endif
+        /* Register the thread */
+        thrman_register(THRTYPE_UNKNOWN);
+
 	printf("Wakeup: ID %03lu (PID: %lu; TID: %lx)\n",
 	    id, (u_long)getpid(), tid);
 

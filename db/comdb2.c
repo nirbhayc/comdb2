@@ -7733,6 +7733,9 @@ void *statthd(void *p)
 
     dbenv = p;
 
+    /* Register the thread */
+    thrman_register(THRTYPE_STAT);
+
     if (COMDB2_DIFFSTAT_REPORT()) {
         /* initialize */
         statlogger = reqlog_alloc();

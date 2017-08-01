@@ -481,6 +481,8 @@ static void *prefault_io_thread(void *arg)
     unsigned char fldnullmap[32];
 
     thread_started("prefault io");
+    /* Register the thread */
+    thrman_register(THRTYPE_PREFAULT_IO);
 
     init_fake_ireq(thedb, &iq);
 

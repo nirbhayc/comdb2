@@ -1227,6 +1227,8 @@ static void *dbqueue_flush_thd(void *argsptr)
 {
     struct flush_thd_data *args = argsptr;
     thread_started("dbque flush");
+    /* Register the thread */
+    thrman_register(THRTYPE_QFLUSH);
     backend_thread_event(thedb, COMDB2_THR_EVENT_START_RDWR);
     dbqueue_flush(args->db, args->consumern);
     backend_thread_event(thedb, COMDB2_THR_EVENT_DONE_RDWR);

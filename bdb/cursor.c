@@ -91,8 +91,9 @@ as long as there was a successful move in the past
 #include <list.h>
 #include <plhash.h>
 #include "logmsg.h"
-
+#include "thrman.h"
 #include "genid.h"
+
 #define MERGE_DEBUG (0)
 
 struct datacopy_info {
@@ -1709,6 +1710,9 @@ static void *pglogs_asof_thread(void *arg)
     struct pglogs_queue_heads qh = {0};
     struct commit_list *lcommit, *bcommit, *next;
     int pollms, ret;
+
+    /* Register the thread */
+    thrman_register(THRTYPE_UNKNOWN);
 
     while (1) {
         // Remove list
@@ -8079,6 +8083,9 @@ static void *db_count(void *varg)
     v.data = alloca(128 * 1024);
     v.ulen = 128 * 1024;
     v.flags = DB_DBT_USERMEM;
+
+    /* Register the thread */
+    thrman_register(THRTYPE_UNKNOWN);
 
     DB *db = arg->db;
     DBC *dbc;

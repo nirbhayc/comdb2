@@ -70,6 +70,7 @@
 #include "printformats.h"
 #include <llog_auto.h>
 #include "logmsg.h"
+#include "thrman.h"
 
 #define REP_PRI 100     /* we are all equal in the eyes of god */
 #define REPTIME 3000000 /* default 3 second timeout on election */
@@ -1167,6 +1168,8 @@ static void *elect_thread(void *args)
     int elect_again = 0;
 
     thread_started("bdb election");
+    /* Register the thread */
+    thrman_register(THRTYPE_UNKNOWN);
 
     elect_thread_args = (elect_thread_args_type *)args;
     bdb_state = elect_thread_args->bdb_state;
@@ -1513,6 +1516,10 @@ void *dummy_add_thread(void *arg)
 {
     bdb_state_type *bdb_state = arg;
     thread_started("dummy add");
+
+    /* Register the thread */
+    thrman_register(THRTYPE_UNKNOWN);
+
     bdb_thread_event(bdb_state, 1);
     add_thread_int(bdb_state, 1);
     bdb_thread_event(bdb_state, 0);
@@ -1524,6 +1531,10 @@ void *rep_catchup_add_thread(void *arg)
 {
     static pthread_mutex_t lk = PTHREAD_MUTEX_INITIALIZER;
     static int rep_catchup_add_running = 0;
+
+    /* Register the thread */
+    thrman_register(THRTYPE_UNKNOWN);
+
     pthread_mutex_lock(&lk);
     if (rep_catchup_add_running) {
         pthread_mutex_unlock(&lk);
@@ -1766,6 +1777,8 @@ void *hostdown_thread(void *arg)
     char *master_host;
 
     thread_started("bdb hostdown");
+    /* Register the thread */
+    thrman_register(THRTYPE_UNKNOWN);
 
     hostdown_buf = (hostdown_type *)arg;
     bdb_state = hostdown_buf->bdb_state;
@@ -4876,6 +4889,8 @@ void *watcher_thread(void *arg)
     gbl_watcher_thread_ran = time_epoch();
 
     thread_started("bdb watcher");
+    /* Register the thread */
+    thrman_register(THRTYPE_UNKNOWN);
 
     last_behind = INT_MAX;
     num_times_behind = 0;

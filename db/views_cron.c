@@ -205,6 +205,9 @@ static void *_cron_runner(void *arg)
     struct errstat xerr;
     int locked;
 
+    /* Register the thread */
+    thrman_register(THRTYPE_SCHEDULER);
+
     if (!sched) {
         logmsg(LOGMSG_ERROR, "%s: NULL schedule!\n", __func__);
         return NULL;

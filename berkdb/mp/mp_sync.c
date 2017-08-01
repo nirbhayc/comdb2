@@ -29,6 +29,7 @@ static const char revid[] = "$Id: mp_sync.c,v 11.80 2003/09/13 19:20:41 bostic E
 #include <ctrace.h>
 #include <pool.h>
 #include <logmsg.h>
+#include "thrman.h"
 
 typedef struct {
 	DB_MPOOL_HASH *track_hp;	/* Hash bucket. */
@@ -222,6 +223,9 @@ mempsync_thd(void *p)
 	DB_LSN lsn, sync_lsn, ckp_lsn;
 	DB_ENV *dbenv = p;
 	int rep_check = 0;
+
+        /* Register the thread */
+        thrman_register(THRTYPE_UNKNOWN);
 
 	/* slightly kludgy, but necessary since this code gets
 	 * called in recovery */

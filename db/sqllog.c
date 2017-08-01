@@ -83,6 +83,9 @@ static void *async_logthd(void *unused)
     struct log_event *e = NULL;
     int rc;
 
+    /* Register the thread */
+    thrman_register(THRTYPE_ASYNC_LOG);
+
     for (;;) {
         pthread_mutex_lock(&sql_log_lk);
         if (e) {

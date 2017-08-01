@@ -30,6 +30,7 @@ static const char revid[] = "$Id: mp_fget.c,v 11.81 2003/09/25 02:15:16 sue Exp 
 #include "dbinc/btree.h"
 
 #include "logmsg.h"
+#include "thrman.h"
 
 
 struct bdb_state_tag;
@@ -1005,6 +1006,9 @@ __memp_send_sparse_page_thread(_)
 	u_int8_t *ufid;
 
 	ii = sizeof(spgs.list) / sizeof(spgs.list[0]) - 1;
+
+        /* Register the thread */
+        thrman_register(THRTYPE_UNKNOWN);
 
 	while (1) {
 		if (pthread_mutex_lock(&spgs.lock) == 0) {

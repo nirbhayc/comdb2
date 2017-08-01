@@ -5587,6 +5587,8 @@ static void *osql_heartbeat_thread(void *arg)
     hbeat_t msg;
 
     thread_started("osql heartbeat");
+    /* Register the thread */
+    thrman_register(THRTYPE_OSQL_HEARTBEAT);
 
     while (1) {
         uint8_t buf[OSQLCOMM_HBEAT_TYPE_LEN],

@@ -88,6 +88,9 @@ void *auto_analyze_table(void *arg)
     char *tblname = (char *)arg;
     int rc;
 
+    /* Register the thread */
+    thrman_register(THRTYPE_ANALYZE);
+
     for (int retries = 0; gbl_schema_change_in_progress && retries < 10;
          retries++) {
         sleep(5); // wait around for sequential fastinits to finish
@@ -301,6 +304,9 @@ void stat_auto_analyze(void)
  */
 void *auto_analyze_main(void *unused)
 {
+    /* Register the thread */
+    thrman_register(THRTYPE_UNKNOWN);
+
     int now = time_epoch();
     if (now - gbl_sc_last_writer_time >
         bdb_attr_get(thedb->bdb_attr, BDB_ATTR_CHK_AA_TIME)) {

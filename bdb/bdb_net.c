@@ -39,6 +39,7 @@
 #include "endian_core.h"
 #include "printformats.h"
 #include "crc32c.h"
+#include "thrman.h"
 
 #undef UDP_DEBUG
 #undef UDP_TRACE
@@ -492,6 +493,9 @@ static void *udp_reader(void *arg)
     int fd = repinfo->udp_fd;
     uint8_t *p_buf, *p_buf_end;
     filepage_type fp;
+
+    /* Register the thread */
+    thrman_register(THRTYPE_UNKNOWN);
 
     while (1) {
 #ifdef UDP_DEBUG

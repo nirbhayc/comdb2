@@ -52,6 +52,7 @@
 #include "comdb2_pthread_create.h"
 #endif
 #include "logmsg.h"
+#include "thrman.h"
 
 extern int gbl_throttle_sql_overload_dump_sec;
 extern int thdpool_alarm_on_queing(int len);
@@ -556,6 +557,8 @@ static void *thdpool_thd(void *voidarg)
     thdpool_thddelt_fn delt_fn;
 
     thread_started("thdpool");
+    /* Register the thread */
+    //thrman_register(THRTYPE_UNKNOWN);
 
 #ifdef PER_THREAD_MALLOC
     pthread_setspecific(thread_type_key, (void *)pool->name);

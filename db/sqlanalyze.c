@@ -281,8 +281,9 @@ static void *sampling_thread(void *arg)
     int rc;
     index_descriptor_t *ix_des = (index_descriptor_t *)arg;
 
-    /* register thread */
+    /* Register the thread */
     thrman_register(THRTYPE_ANALYZE);
+
     backend_thread_event(thedb, COMDB2_THR_EVENT_START_RDWR);
 
     /* update state */
@@ -848,8 +849,9 @@ static void *table_thread(void *arg)
     table_descriptor_t *td = (table_descriptor_t *)arg;
     struct thr_handle *thd_self;
 
-    /* register thread */
+    /* Register the thread */
     thd_self = thrman_register(THRTYPE_ANALYZE);
+
     backend_thread_event(thedb, COMDB2_THR_EVENT_START_RDWR);
 
     stat4dump(1, td->table, 1); /* dump stats in trc file */

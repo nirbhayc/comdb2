@@ -54,6 +54,7 @@
 
 #include <sbuf2.h>
 #include <logmsg.h>
+#include "thrman.h"
 
 struct error_extension {
     uint32_t length; /* length of this struct in bytes */
@@ -237,6 +238,8 @@ static void *fstdump_thread(void *arg)
     bdb_state_type *bdb_state = common->bdb_state;
 
     /*thread_started("bdb fstdump");*/
+    /* Register the thread */
+    thrman_register(THRTYPE_UNKNOWN);
 
     /* work out how large a buffer we need.  It must be a multiple of 1KB,
      * larger than the page size and unsigned int aligned
@@ -295,6 +298,8 @@ static void *fstdump_thread2(void *voidarg)
     struct fstdump_thread2_arg *args = voidarg;
 
     /*thread_started("bdb fstdump2");*/
+    /* Register the thread */
+    thrman_register(THRTYPE_UNKNOWN);
 
     while (1) {
         fstdump_per_thread_t *work = NULL;

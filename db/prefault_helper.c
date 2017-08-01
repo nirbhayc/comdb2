@@ -74,8 +74,9 @@ static void *prefault_helper_thread(void *arg)
     int retrys;
     int working_for;
 
-    thr_self = thrman_register(THRTYPE_PREFAULT);
     thread_started("prefault helper");
+    /* Register the thread. */
+    thr_self = thrman_register(THRTYPE_PREFAULT_HELPER);
 
     memcpy(&prefault_helper_thread_arg, arg,
            sizeof(prefault_helper_thread_arg_type));

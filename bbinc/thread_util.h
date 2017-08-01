@@ -39,7 +39,7 @@ void thread_util_dump_on_exit_enable(void);
 void thread_util_dump_on_exit_disable(void);
 void thread_util_donework(void);
 
-/* define architecture thread identifies for sane debugging */
+/* Define architecture thread identifies for sane debugging. */
 #if defined(_LINUX_SOURCE)
 typedef pid_t arch_tid;
 #elif defined(_IBM_SOURCE)

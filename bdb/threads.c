@@ -50,6 +50,7 @@
 #include <plbitlib.h> /* for bset/btst */
 #include <autoanalyze.h>
 #include <logmsg.h>
+#include "thrman.h"
 
 void *udp_backup(void *arg)
 {
@@ -78,6 +79,10 @@ void *udpbackup_and_autoanalyze_thd(void *arg)
     unsigned count = 0;
     bdb_state_type *bdb_state = arg;
     repinfo_type *repinfo = bdb_state->repinfo;
+
+    /* Register the thread */
+    thrman_register(THRTYPE_UNKNOWN);
+
     while (!(bdb_state->exiting)) {
         ++count;
         if (repinfo->master_host != repinfo->myhost) { // not master
@@ -104,6 +109,9 @@ void *memp_trickle_thread(void *arg)
     int rc;
 
     bdb_state = (bdb_state_type *)arg;
+
+    /* Register the thread */
+    thrman_register(THRTYPE_UNKNOWN);
 
     if (bdb_state->parent)
         bdb_state = bdb_state->parent;
@@ -160,6 +168,9 @@ void *deadlockdetect_thread(void *arg)
     int aborted;
 
     bdb_state = (bdb_state_type *)arg;
+
+    /* Register the thread */
+    thrman_register(THRTYPE_UNKNOWN);
 
     if (bdb_state->parent)
         bdb_state = bdb_state->parent;
@@ -220,6 +231,9 @@ void *master_lease_thread(void *arg)
     bdb_state_type *bdb_state = (bdb_state_type *)arg;
     repinfo_type *repinfo = bdb_state->repinfo;
 
+    /* Register the thread */
+    thrman_register(THRTYPE_UNKNOWN);
+
     pthread_mutex_lock(&lk);
     if (have_master_lease_thread) {
         pthread_mutex_unlock(&lk);
@@ -267,6 +281,9 @@ void *coherency_lease_thread(void *arg)
     bdb_state_type *bdb_state = (bdb_state_type *)arg;
     repinfo_type *repinfo = bdb_state->repinfo;
     pthread_t tid;
+
+    /* Register the thread */
+    thrman_register(THRTYPE_UNKNOWN);
 
     pthread_mutex_lock(&lk);
     if (have_coherency_thread) {
@@ -334,6 +351,9 @@ void *logdelete_thread(void *arg)
 
     bdb_state = (bdb_state_type *)arg;
 
+    /* Register the thread */
+    thrman_register(THRTYPE_UNKNOWN);
+
     if (bdb_state->parent) bdb_state = bdb_state->parent;
 
     while (!bdb_state->after_llmeta_init_done)
@@ -386,6 +406,8 @@ void *checkpoint_thread(void *arg)
     int broken;
 
     thread_started("bdb checkpoint");
+    /* Register the thread */
+    thrman_register(THRTYPE_UNKNOWN);
 
     bdb_state = (bdb_state_type *)arg;
 
@@ -501,6 +523,9 @@ void *lwm_printer_thd(void *p)
     DB_LSN lsn;
     DB_LSN *active_lsns = NULL;
     int trannum;
+
+    /* Register the thread */
+    thrman_register(THRTYPE_UNKNOWN);
 
     for (;;) {
         bdb_get_lsn_lwm(bdb_state, &lsn);

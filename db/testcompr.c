@@ -309,7 +309,11 @@ static void *handle_comptest_thd(void *_arg)
         skip = 0;
     }
 
+    /* Register the thread */
+    thrman_register(THRTYPE_UNKNOWN);
+
     backend_thread_event(thedb, BDBTHR_EVENT_START_RDONLY);
+
     comp.sb = arg->sb;
     comp.just_crle = 0;
     for (i = 0; i < MAXBLOBS; ++i) {

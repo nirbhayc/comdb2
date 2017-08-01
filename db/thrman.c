@@ -15,9 +15,10 @@
  */
 
 /*
- * Utilities to manage all the different threads we have lying around.
- *
- */
+  Comdb2 thread manager
+
+  Utilities to manage all the different threads we have lying around.
+*/
 
 #include <sys/socket.h>
 #ifdef _IBM_SOURCE
@@ -31,47 +32,58 @@
 #include <errno.h>
 #include <netinet/in.h>
 #include <pthread.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-#include <stddef.h>
-#include <time.h>
-
-#include <list.h>
-#include <lockmacro.h>
-#include <epochlib.h>
-#include <memory_sync.h>
 
 #include "comdb2.h"
-#include "util.h"
+#include "list.h"
 #include "thrman.h"
-#include "thdpool.h"
-#include "thread_util.h"
-#include "osqlrepository.h"
 #include "logmsg.h"
+#include "lockmacros.h"
+#include "memory_sync.h"
+#include "osqlrepository.h"
+
+/*
+  4MB stack - There should be a better solution for this. Some huge
+  sql queries (it's happened) blow out stack during the parsing phase.
+*/
+#define THREAD_STACK_SIZE 4 * 1024 * 1024
 
 struct thr_handle {
+    /* Thread ID */
     pthread_t tid;
 
+    /* Architecture specific thread ID. */
     arch_tid archtid;
 
+    /* Thread type */
     enum thrtype type;
+
+    /* Thread sub-type */
+    enum thrsubtype subtype;
 
     /* sql pool threads can specify which pool they belong to */
     sqlpool_t *sqlpool;
 
-    /* String that says what the thread is doing.  This pointer gets
-     * updated locklessly. */
+    /* When was the thread created/registered? */
+    time_t when;
+
+    /*
+      String that says what the thread is doing. This pointer gets
+      updated locklessly.
+    */
     const char *where;
 
-    /* Used for more complex where strings.  Note that we take great
-     * pains to ensure that we never overwrite the final byte with anything
-     * other than a zero, so that it is always safe to assume that this string
-     * is \0 terminated even if doing stuff locklessly. */
+    /*
+      Used for more complex where strings. Note that we take great
+      pains to ensure that we never overwrite the final byte with
+      anything other than a zero, so that it is always safe to assume
+      that this string is \0 terminated even if doing stuff locklessly.
+    */
     char where_buf[1024];
 
-    /* An id string.  For appsock connections you can set the id with the
-     * id command. */
+    /*
+      An Id string. For appsock connections you can set the id with the
+      Id command.
+    */
     char id[128];
 
     /* File descriptor associated with this thread. */
@@ -83,47 +95,205 @@ struct thr_handle {
     /* Origin of the request. */
     char corigin[80];
 
-    enum thrsubtype subtype;
+#if 0
+    /* Number of mutex locks and unlocks. */
+    uint64_t mutex_locks;
+    uint64_t mutex_unlocks;
 
-    LINKC_T(struct thr_handle) linkv;
+    /* Number of bytes currently allocated by the thread. */
+    uint64_t alloced;
+    /* Total number of bytes currently allocated by the thread. */
+    uint64_t alloced_total;
+#endif
+
+    LINKC_T(struct thr_handle) lnk;
 };
 
+struct thr_attr_t {
+    /* Thread type */
+    int code;
+
+    /* Type name */
+    const char *name;
+
+    /* Number of threads of this type. */
+    int count;
+
+    /* Thread detach state. */
+    int detach_state;
+
+    /* Thread stack size. */
+    size_t stack_size;
+};
+
+/* List of all threads. */
+LISTC_T(struct thr_handle) gbl_threads;
+/* Mutex */
+static pthread_mutex_t thrman_mutex;
+/* Condition variable */
+static pthread_cond_t thrman_cond;
+/* Key for thread specific storage. */
 static pthread_key_t thrman_key;
-
-int gbl_thrman_trace = 0;
-
+/* Thread attribute for all types. */
+static pthread_attr_t pthread_attr[THRTYPE_MAX];
+/* Print trace. */
+int gbl_thrman_trace = 1;
 /* This is useful to lots of things */
 pthread_attr_t gbl_pthread_attr_detached;
+/* Property for all thread types. */
+static struct thr_attr_t thr_attr[] = {
+    {THRTYPE_UNKNOWN, "unknown", 0, PTHREAD_CREATE_DETACHED, THREAD_STACK_SIZE},
+    {THRTYPE_APPSOCK, "appsock", 0, PTHREAD_CREATE_DETACHED, THREAD_STACK_SIZE},
+    {THRTYPE_SQLPOOL, "sqlpool", 0, PTHREAD_CREATE_DETACHED, THREAD_STACK_SIZE},
+    {THRTYPE_SQL, "sql", 0, PTHREAD_CREATE_DETACHED, THREAD_STACK_SIZE},
+    {THRTYPE_REQ, "req", 0, PTHREAD_CREATE_DETACHED, THREAD_STACK_SIZE},
+    {THRTYPE_CONSUMER, "consumer", 0, PTHREAD_CREATE_DETACHED,
+     THREAD_STACK_SIZE},
+    {THRTYPE_PURGEBLKSEQ, "purge-old-blkseq", 0, PTHREAD_CREATE_DETACHED,
+     THREAD_STACK_SIZE},
+    {THRTYPE_PREFAULT_HELPER, "prefault-helper", 0, PTHREAD_CREATE_DETACHED,
+     THREAD_STACK_SIZE},
+    {THRTYPE_VERIFY, "verify", 0, PTHREAD_CREATE_DETACHED, THREAD_STACK_SIZE},
+    {THRTYPE_ANALYZE, "analyze", 0, PTHREAD_CREATE_DETACHED, THREAD_STACK_SIZE},
+    {THRTYPE_PUSHLOG, "push-logs", 0, PTHREAD_CREATE_DETACHED,
+     THREAD_STACK_SIZE},
+    {THRTYPE_SCHEMACHANGE, "schema-change", 0, PTHREAD_CREATE_DETACHED,
+     THREAD_STACK_SIZE},
+    {THRTYPE_BBIPC_WAITFT, "bbipc-waitft", 0, PTHREAD_CREATE_DETACHED,
+     THREAD_STACK_SIZE},
+    {THRTYPE_LOGDELHOLD, "log-del-hold", 0, PTHREAD_CREATE_DETACHED,
+     THREAD_STACK_SIZE},
+    {THRTYPE_OSQL, "osql", 0, PTHREAD_CREATE_DETACHED, THREAD_STACK_SIZE},
+    {THRTYPE_COORDINATOR, "transaction-coordinator", 0, PTHREAD_CREATE_DETACHED,
+     THREAD_STACK_SIZE},
+    {THRTYPE_APPSOCK_POOL, "appsock-pool", 0, PTHREAD_CREATE_DETACHED,
+     THREAD_STACK_SIZE},
+    {THRTYPE_SQLENGINEPOOL, "sql-engine-pool", 0, PTHREAD_CREATE_DETACHED,
+     THREAD_STACK_SIZE},
+    {THRTYPE_APPSOCK_SQL, "appsock-sql", 0, PTHREAD_CREATE_DETACHED,
+     THREAD_STACK_SIZE},
+    {THRTYPE_MTRAP, "mtrap", 0, PTHREAD_CREATE_DETACHED, THREAD_STACK_SIZE},
+    {THRTYPE_QSTAT, "queue-stat", 0, PTHREAD_CREATE_DETACHED,
+     THREAD_STACK_SIZE},
+    {THRTYPE_PURGEFILES, "purge-files", 0, PTHREAD_CREATE_DETACHED,
+     THREAD_STACK_SIZE},
+    {THRTYPE_BULK_IMPORT, "bulk-import", 0, PTHREAD_CREATE_DETACHED,
+     THREAD_STACK_SIZE},
+    {THRTYPE_TRIGGER, "lua-trigger", 0, PTHREAD_CREATE_DETACHED,
+     THREAD_STACK_SIZE},
+    {THRTYPE_STAT, "stat", 0, PTHREAD_CREATE_DETACHED, THREAD_STACK_SIZE},
+    {THRTYPE_TIMER, "timer", 0, PTHREAD_CREATE_DETACHED, THREAD_STACK_SIZE},
+    {THRTYPE_QFLUSH, "queue-flush", 0, PTHREAD_CREATE_DETACHED,
+     THREAD_STACK_SIZE},
+    {THRTYPE_OSQL_HEARTBEAT, "osql-heartbeat", 0, PTHREAD_CREATE_DETACHED,
+     THREAD_STACK_SIZE},
+    {THRTYPE_PREFAULT_IO, "prefault-io", 0, PTHREAD_CREATE_DETACHED,
+     THREAD_STACK_SIZE},
+    {THRTYPE_EXIT_HANDLER, "exit-handler", 0, PTHREAD_CREATE_DETACHED,
+     THREAD_STACK_SIZE},
+    {THRTYPE_ASYNC_LOG, "async-log", 0, PTHREAD_CREATE_DETACHED,
+     THREAD_STACK_SIZE},
+    {THRTYPE_COMPACT, "compaction", 0, PTHREAD_CREATE_DETACHED,
+     THREAD_STACK_SIZE},
+    {THRTYPE_SCHEDULER, "scheduler", 0, PTHREAD_CREATE_DETACHED,
+     THREAD_STACK_SIZE},
+    {THRTYPE_WATCHDOG, "watchdog", 0, PTHREAD_CREATE_DETACHED,
+     THREAD_STACK_SIZE},
+    {THRTYPE_WATCHDOG_WATCHER, "watchdog-watcher", 0, PTHREAD_CREATE_DETACHED,
+     THREAD_STACK_SIZE},
+    {THRTYPE_DECOM_NODE, "decom-node", 0, PTHREAD_CREATE_DETACHED,
+     THREAD_STACK_SIZE},
+    {THRTYPE_READER, "reader", 0, PTHREAD_CREATE_DETACHED, THREAD_STACK_SIZE},
+    {THRTYPE_WRITER, "writer", 0, PTHREAD_CREATE_DETACHED, THREAD_STACK_SIZE},
+    {THRTYPE_CONNECT, "connect", 0, PTHREAD_CREATE_DETACHED, THREAD_STACK_SIZE},
+    {THRTYPE_ACCEPT, "accept", 0, PTHREAD_CREATE_DETACHED, THREAD_STACK_SIZE},
+    {THRTYPE_CONNECT_AND_ACCEPT, "connect_and_accept", 0,
+     PTHREAD_CREATE_DETACHED, THREAD_STACK_SIZE},
+    {THRTYPE_HEARTBEAT_SEND, "heartbeat-send", 0, PTHREAD_CREATE_DETACHED,
+     THREAD_STACK_SIZE},
+    {THRTYPE_HEARTBEAT_CHECK, "heartbeat-check", 0, PTHREAD_CREATE_DETACHED,
+     THREAD_STACK_SIZE},
+    {THRTYPE_MAX, "????", 0, 0, 0},
+};
 
-/* All these are protected by a mutex */
-static pthread_mutex_t mutex;
-static pthread_cond_t cond;
-static LISTC_T(struct thr_handle) thr_list;
-static int thr_type_counts[THRTYPE_MAX] = {0};
+/*
+  Called from the thrman_key destructor when the thread exits, or manually
+  via thrman_unregister().
+*/
+static void thrman_destructor(void *param)
+{
+    struct thr_handle *thr = param;
+    int rc;
 
-static void thrman_destructor(void *param);
+    if (!thr) {
+        logmsg(LOGMSG_ERROR, "thrman_destructor: thr == NULL\n");
+        return;
+    }
+
+    pthread_mutex_lock(&thrman_mutex);
+    listc_rfl(&gbl_threads, thr);
+    thr_attr[thr->type].count--;
+    if (gbl_thrman_trace) {
+        char buf[1024];
+        logmsg(LOGMSG_USER, "thrman_destructor: %s\n",
+               thrman_describe(thr, buf, sizeof(buf)));
+    }
+    pthread_cond_broadcast(&thrman_cond);
+    pthread_mutex_unlock(&thrman_mutex);
+
+    if (thr->reqlogger) {
+        reqlog_free(thr->reqlogger);
+    }
+
+    free(thr);
+}
 
 void thrman_init(void)
 {
     int rc;
 
-    rc = pthread_mutex_init(&mutex, NULL);
+    rc = pthread_mutex_init(&thrman_mutex, NULL);
     if (rc != 0) {
-        perror_errnum("thrman_init:pthread_mutex_init", rc);
+        perror_errnum("thrman_init: pthread_mutex_init failed", rc);
         exit(1);
     }
 
     rc = pthread_key_create(&thrman_key, thrman_destructor);
     if (rc != 0) {
-        perror_errnum("thrman_init:pthread_key_create", rc);
+        perror_errnum("thrman_init: pthread_key_create failed", rc);
         exit(1);
     }
 
-    rc = pthread_cond_init(&cond, NULL);
+    rc = pthread_cond_init(&thrman_cond, NULL);
     if (rc != 0) {
-        perror_errnum("thrman_init:pthread_cond_init", rc);
+        perror_errnum("thrman_init: pthread_cond_init failed", rc);
         exit(1);
     }
+
+#if 0
+    /* Pre-populate thread attributes for all thread types. */
+    for (int i = 0; i < THRTYPE_MAX; i++) {
+        rc = pthread_attr_init(&pthread_attr[i]);
+        if (rc != 0) {
+            perror_errnum("thrman_init: pthread_attr_init failed", rc);
+            exit(1);
+        }
+
+        rc = pthread_attr_setdetachstate(&pthread_attr[i],
+                                         thr_attr[i].detach_state);
+        if (rc != 0) {
+            perror_errnum("thrman_init: pthread_attr_setdetachstate failed",
+                          rc);
+            exit(1);
+        }
+
+        rc = pthread_attr_setstacksize(&pthread_attr[i], thr_attr[i].stack_size);
+        if (rc != 0) {
+            perror_errnum("thrman_init: pthread_attr_setstacksize failed", rc);
+            exit(1);
+        }
+    }
+#endif
 
     pthread_attr_init(&gbl_pthread_attr_detached);
     pthread_attr_setdetachstate(&gbl_pthread_attr_detached,
@@ -133,18 +303,22 @@ void thrman_init(void)
        phase. */
     rc = pthread_attr_setstacksize(&gbl_pthread_attr_detached, 4 * 1024 * 1024);
 
-    listc_init(&thr_list, offsetof(struct thr_handle, linkv));
+    listc_init(&gbl_threads, offsetof(struct thr_handle, lnk));
+
+    return;
 }
 
-/* Register the current thread with the thead manager.  There's no need to
- * de-register later on, but you can if you like.  Returns a handle by which
- * the current thread will be known. */
+/*
+  Register the current thread with the thread manager. There's no need to
+  de-register later on, but you can if you like. Returns a handle by which
+  the current thread will be known.
+*/
 struct thr_handle *thrman_register(enum thrtype type)
 {
     struct thr_handle *thr;
     int rc;
 
-    if (type < 0 || type >= THRTYPE_MAX) {
+    if (type < THRTYPE_UNKNOWN || type >= THRTYPE_MAX) {
         logmsg(LOGMSG_ERROR, "thrman_register: type=%d out of range\n", type);
         return NULL;
     }
@@ -152,8 +326,9 @@ struct thr_handle *thrman_register(enum thrtype type)
     thr = pthread_getspecific(thrman_key);
     if (thr) {
         char buf[1024];
-        logmsg(LOGMSG_FATAL, "thrman_register(%s): thread already registered: %s\n",
-                thrman_type2a(type), thrman_describe(thr, buf, sizeof(buf)));
+        logmsg(LOGMSG_FATAL,
+               "thrman_register(%s): thread already registered: %s\n",
+               thrman_type2a(type), thrman_describe(thr, buf, sizeof(buf)));
         abort();
     }
 
@@ -167,92 +342,72 @@ struct thr_handle *thrman_register(enum thrtype type)
     thr->archtid = getarchtid();
     thr->type = type;
     thr->fd = -1;
+    time(&thr->when);
 
     rc = pthread_setspecific(thrman_key, thr);
     if (rc != 0) {
         char buf[1024];
-        logmsg(LOGMSG_FATAL, "thrman_register(%s): pthread_setspecific: %d %s\n",
-                thrman_type2a(type), rc, strerror(rc));
+        logmsg(LOGMSG_FATAL,
+               "thrman_register(%s): pthread_setspecific: %d %s\n",
+               thrman_type2a(type), rc, strerror(rc));
         abort();
     }
 
-    pthread_mutex_lock(&mutex);
-    listc_abl(&thr_list, thr);
-    thr_type_counts[type]++;
+    pthread_mutex_lock(&thrman_mutex);
+    listc_abl(&gbl_threads, thr);
+    thr_attr[type].count++;
     if (gbl_thrman_trace) {
         char buf[1024];
-       logmsg(LOGMSG_ERROR, "thrman_register: %s\n", thrman_describe(thr, buf, sizeof(buf)));
+        logmsg(LOGMSG_ERROR, "thrman_register: %s\n",
+               thrman_describe(thr, buf, sizeof(buf)));
     }
-    pthread_cond_broadcast(&cond);
-    pthread_mutex_unlock(&mutex);
+    pthread_cond_broadcast(&thrman_cond);
+    pthread_mutex_unlock(&thrman_mutex);
 
     return thr;
 }
 
+pthread_t thrman_get_tid(struct thr_handle *thr)
+{
+    if (!thr) return -1;
+    return thr->tid;
+}
+
 enum thrtype thrman_get_type(struct thr_handle *thr)
 {
-    if (thr)
-        return thr->type;
-    else
-        return THRTYPE_UNKNOWN;
+    if (!thr) return THRTYPE_UNKNOWN;
+    return thr->type;
 }
 
 enum thrsubtype thrman_get_subtype(struct thr_handle *thr)
 {
-    if (thr)
-        return thr->subtype;
-    else
-        return THRSUBTYPE_UNKNOWN;
+    if (!thr) return THRSUBTYPE_UNKNOWN;
+    return thr->subtype;
+}
+
+const char *thrman_get_where(struct thr_handle *thr)
+{
+    if (!thr) return 0;
+    return thr->where;
 }
 
 /* Change the type of the given thread. */
 void thrman_change_type(struct thr_handle *thr, enum thrtype newtype)
 {
     enum thrtype oldtype;
-
     oldtype = thr->type;
 
-    pthread_mutex_lock(&mutex);
-    thr_type_counts[thr->type]--;
+    pthread_mutex_lock(&thrman_mutex);
+    thr_attr[thr->type].count--;
     thr->type = newtype;
-    thr_type_counts[thr->type]++;
+    thr_attr[thr->type].count++;
     if (gbl_thrman_trace) {
         char buf[1024];
-       logmsg(LOGMSG_USER, "thrman_change_type: from %s -> %s\n", thrman_type2a(oldtype),
-               thrman_describe(thr, buf, sizeof(buf)));
+        logmsg(LOGMSG_USER, "thrman_change_type: from %s -> %s\n",
+               thrman_type2a(oldtype), thrman_describe(thr, buf, sizeof(buf)));
     }
-    pthread_cond_broadcast(&cond);
-    pthread_mutex_unlock(&mutex);
-}
-
-/* Called from the thrman_key destructor when the thread exits, or manually
- * via thrman_unregister(). */
-static void thrman_destructor(void *param)
-{
-    struct thr_handle *thr = param;
-    int rc;
-
-    if (!thr) {
-        logmsg(LOGMSG_ERROR, "thrman_destructor: thr==NULL\n");
-        return;
-    }
-
-    pthread_mutex_lock(&mutex);
-    listc_rfl(&thr_list, thr);
-    thr_type_counts[thr->type]--;
-    if (gbl_thrman_trace) {
-        char buf[1024];
-        logmsg(LOGMSG_USER, "thrman_destructor: %s\n",
-               thrman_describe(thr, buf, sizeof(buf)));
-    }
-    pthread_cond_broadcast(&cond);
-    pthread_mutex_unlock(&mutex);
-
-    if (thr->reqlogger) {
-        reqlog_free(thr->reqlogger);
-    }
-
-    free(thr);
+    pthread_cond_broadcast(&thrman_cond);
+    pthread_mutex_unlock(&thrman_mutex);
 }
 
 /* Get the current thread's handle.  Returns NULL if it is not registered. */
@@ -280,29 +435,35 @@ void thrman_origin(struct thr_handle *thr, const char *origin)
         if (origin) {
             strncpy(thr->corigin, origin, sizeof(thr->corigin));
             thr->corigin[sizeof(thr->corigin) - 1] = 0;
-        } else
+        } else {
             thr->corigin[0] = 0;
+        }
     }
 }
 
-/* Sets description of where the thread is.  The passed in pointer should
- * be a string literal; it may be referenced at any time in the future. */
+/*
+  Sets description of where the thread is. The passed in pointer should
+  be a string literal; it may be referenced at any time in the future.
+*/
 void thrman_where(struct thr_handle *thr, const char *where)
 {
-    if (thr)
-        thr->where = where;
+    if (thr) thr->where = where;
 }
 
-/* Like thrman_where+printf.  You can use it when your where string isn't as
- * simple as a string literal. */
+/*
+  Like thrman_where+printf. You can use it when your where string isn't as
+  simple as a string literal.
+*/
 void thrman_wheref(struct thr_handle *thr, const char *fmt, ...)
 {
     if (thr) {
         va_list args;
         va_start(args, fmt);
-        /* Note that we use sizeof(buf) - 1.  This is to ensure that the
-         * final byte in the buffer stays zero.  The string will always be
-         * null terminated. */
+        /*
+          Note that we use sizeof(buf) - 1. This is to ensure that the final
+          byte in the buffer stays zero. The string will always be null
+          terminated.
+        */
         vsnprintf(thr->where_buf, sizeof(thr->where_buf) - 1, fmt, args);
         thr->where = thr->where_buf;
         va_end(args);
@@ -321,8 +482,11 @@ void thrman_setid(struct thr_handle *thr, const char *idstr)
     strncpy(thr->id, idstr, sizeof(thr->id) - 1);
 }
 
-/* Set associated file descriptor.  -1 indicates no file descriptor. */
-void thrman_setfd(struct thr_handle *thr, int fd) { thr->fd = fd; }
+/* Set associated file descriptor. -1 indicates no file descriptor. */
+void thrman_setfd(struct thr_handle *thr, int fd)
+{
+    thr->fd = fd;
+}
 
 void thrman_set_subtype(struct thr_handle *thr, enum thrsubtype subtype)
 {
@@ -331,64 +495,18 @@ void thrman_set_subtype(struct thr_handle *thr, enum thrsubtype subtype)
 
 const char *thrman_type2a(enum thrtype type)
 {
-    switch (type) {
-    case THRTYPE_UNKNOWN:
-        return "unknown";
-    case THRTYPE_OSQL:
-        return "blocksql";
-    case THRTYPE_APPSOCK:
-        return "appsock";
-    case THRTYPE_APPSOCK_POOL:
-        return "appsock-pool";
-    case THRTYPE_APPSOCK_SQL:
-        return "appsock-pool-sql";
-    case THRTYPE_SQLPOOL:
-        return "sqlpool";
-    case THRTYPE_SQLENGINEPOOL:
-        return "sql-engine-pool";
-    case THRTYPE_SQL:
-        return "sql";
-    case THRTYPE_REQ:
-        return "req";
-    case THRTYPE_CONSUMER:
-        return "consumer";
-    case THRTYPE_PURGEBLKSEQ:
-        return "purge-old-blkseq";
-    case THRTYPE_PREFAULT:
-        return "prefault";
-    case THRTYPE_VERIFY:
-        return "verify";
-    case THRTYPE_SCHEMACHANGE:
-        return "schema-change";
-    case THRTYPE_ANALYZE:
-        return "analyze";
-    case THRTYPE_PUSHLOG:
-        return "pushlogs";
-    case THRTYPE_BBIPC_WAITFT:
-        return "bbipc-waitft";
-    case THRTYPE_LOGDELHOLD:
-        return "log-del-hold";
-    case THRTYPE_COORDINATOR:
-        return "transaction-coordinator";
-    case THRTYPE_MTRAP:
-        return "mtrap";
-    case THRTYPE_QSTAT:
-        return "queue-stat";
-    case THRTYPE_PURGEFILES:
-        return "purge-old-files";
-    case THRTYPE_TRIGGER:
-        return "lua-trigger";
-    default:
-        return "??";
-    }
+    if (type < THRTYPE_UNKNOWN || type >= THRTYPE_MAX) type = THRTYPE_MAX;
+    return thr_attr[type + 1].name;
 }
 
-/* Populate the buffer with a description of the thread.  Returns a pointer
- * to the buffer. */
+/*
+  Populate the buffer with a description of the thread.
+  Returns a pointer to the buffer.
+*/
 char *thrman_describe(struct thr_handle *thr, char *buf, size_t szbuf)
 {
     if (!thr)
-        snprintf(buf, szbuf, "thr==NULL");
+        snprintf(buf, szbuf, "thr == NULL");
     else {
         const char *where = thr->where;
         int fd = thr->fd;
@@ -398,10 +516,10 @@ char *thrman_describe(struct thr_handle *thr, char *buf, size_t szbuf)
                        thrman_type2a(thr->type));
 
         if (fd >= 0) {
-            /* Get the IP address of this socket connection.  We assume that
+            /* Get the IP address of this socket connection. We assume that
              * fd is a socket and not something else, and we assume that it
-             * is still valid.  Because we're lockless we may be wrong (very
-             * unlikely, but possible).  The worst that can happen is we'll
+             * is still valid. Because we're lockless we may be wrong (very
+             * unlikely, but possible). The worst that can happen is we'll
              * get an error, or wrong information. */
             struct sockaddr_in peeraddr;
             int len = sizeof(peeraddr);
@@ -434,9 +552,9 @@ static void thrman_dump_ll(void)
     struct thr_handle *temp;
     int count;
 
-    printf("%d registered threads running:-\n", listc_size(&thr_list));
+    printf("%d registered threads running:-\n", listc_size(&gbl_threads));
     count = 0;
-    LISTC_FOR_EACH_SAFE(&thr_list, thr, temp, linkv)
+    LISTC_FOR_EACH_SAFE(&gbl_threads, thr, temp, lnk)
     {
         char buf[1024];
         printf("  %2d) %s\n", count, thrman_describe(thr, buf, sizeof(buf)));
@@ -445,92 +563,96 @@ static void thrman_dump_ll(void)
     printf("------\n");
 }
 
-/* Dump all active threads */
+/* Dump all registered threads. */
 void thrman_dump(void)
 {
-    pthread_mutex_lock(&mutex);
+    pthread_mutex_lock(&thrman_mutex);
     thrman_dump_ll();
-    pthread_mutex_unlock(&mutex);
+    pthread_mutex_unlock(&thrman_mutex);
 }
 
-/* stop sql connections.  this is needed to stop blocked
-   persistent connections. */
+/*
+  Stop sql connections. This is needed to stop blocked persistent
+  connections.
+*/
 void thrman_stop_sql_connections(void)
 {
     struct thr_handle *thr;
     struct thr_handle *temp;
 
-    pthread_mutex_lock(&mutex);
-    LISTC_FOR_EACH_SAFE(&thr_list, thr, temp, linkv)
+    pthread_mutex_lock(&thrman_mutex);
+    LISTC_FOR_EACH_SAFE(&gbl_threads, thr, temp, lnk)
     {
         if (thr->type == THRTYPE_SQLPOOL || thr->type == THRTYPE_SQL ||
             thr->type == THRTYPE_SQLENGINEPOOL ||
             thr->type == THRTYPE_APPSOCK_SQL)
             shutdown(thr->fd, 0);
     }
-    pthread_mutex_unlock(&mutex);
+    pthread_mutex_unlock(&thrman_mutex);
 }
 
 /* See if all threads are gone (or all but myself) */
 static int thrman_check_threads_stopped_ll(void *context)
 {
     int all_gone = 0;
+    int count = 0;
+
     struct thr_handle *self = thrman_self();
 
-    if (self)
-        thr_type_counts[self->type]--;
+    // pthread_mutex_lock(&thrman_mutex);
+
+    if (self) thr_attr[self->type].count--;
 
     if (0 ==
-        thr_type_counts[THRTYPE_OSQL] + thr_type_counts[THRTYPE_APPSOCK] +
-            thr_type_counts[THRTYPE_APPSOCK_POOL] +
-            thr_type_counts[THRTYPE_APPSOCK_SQL] +
-            thr_type_counts[THRTYPE_CONSUMER] + thr_type_counts[THRTYPE_SQL] +
-            thr_type_counts[THRTYPE_SQLPOOL] +
-            thr_type_counts[THRTYPE_SQLENGINEPOOL] +
-            thr_type_counts[THRTYPE_VERIFY] + thr_type_counts[THRTYPE_ANALYZE] +
-            thr_type_counts[THRTYPE_PURGEBLKSEQ])
+        thr_attr[THRTYPE_OSQL].count + thr_attr[THRTYPE_APPSOCK].count +
+            thr_attr[THRTYPE_APPSOCK_POOL].count +
+            thr_attr[THRTYPE_APPSOCK_SQL].count +
+            thr_attr[THRTYPE_CONSUMER].count + thr_attr[THRTYPE_SQL].count +
+            thr_attr[THRTYPE_SQLPOOL].count +
+            thr_attr[THRTYPE_SQLENGINEPOOL].count +
+            thr_attr[THRTYPE_VERIFY].count + thr_attr[THRTYPE_ANALYZE].count +
+            thr_attr[THRTYPE_PURGEBLKSEQ].count)
         all_gone = 1;
 
-    /* if we're exiting then we don't want a schema change thread running */
-    if (thedb->exiting && 0 != thr_type_counts[THRTYPE_SCHEMACHANGE])
+    /* If we're exiting then we don't want a schema change thread running */
+    if (thedb->exiting && 0 != thr_attr[THRTYPE_SCHEMACHANGE].count)
         all_gone = 0;
 
-    if (self)
-        thr_type_counts[self->type]++;
+    if (self) thr_attr[self->type].count++;
+
+    // pthread_mutex_unlock(&thrman_mutex);
 
     return all_gone;
 }
 
-/* See if all threads of a given type are gone */
+/* See if all threads of a given type are gone. */
 static int thrman_check_threads_gone_ll(void *context)
 {
-    enum thrtype *ptype = context;
-    enum thrtype type = *ptype;
     int target = 0;
+    enum thrtype type = *(enum thrtype *)context;
     struct thr_handle *self = thrman_self();
 
-    if (self && self->type == type)
-        target = 1;
+    if (self && self->type == type) target = 1;
 
-    if (thr_type_counts[type] == target)
-        return 1;
+    if (thr_attr[type].count == target) return 1;
 
     return 0;
 }
 
-/* Wait for some condition to happen.  The condition will be checked by the
- * passed in function, which expects to be called under lock. */
+/*
+  Wait for some condition to happen. The condition will be checked by the
+  passed in function, which expects to be called under lock.
+*/
 static void thrman_wait(const char *descr, int (*check_fn_ll)(void *),
                         void *context)
 {
-    pthread_mutex_lock(&mutex);
+    pthread_mutex_lock(&thrman_mutex);
     while (1) {
         struct timespec ts;
         struct timeval tp;
         int rc;
 
-        if (check_fn_ll(context))
-            break;
+        if (check_fn_ll(context)) break;
 
         gettimeofday(&tp, NULL);
         ts.tv_sec = tp.tv_sec;
@@ -538,47 +660,49 @@ static void thrman_wait(const char *descr, int (*check_fn_ll)(void *),
         ts.tv_sec += 10;
 
         /* Wait for something to change. */
-        rc = pthread_cond_timedwait(&cond, &mutex, &ts);
+        rc = pthread_cond_timedwait(&thrman_cond, &thrman_mutex, &ts);
         if (rc == ETIMEDOUT) {
             printf("Waiting for %s\n", descr);
             thrman_dump_ll();
             sql_dump_running_statements();
         } else if (rc != 0) {
-            perror_errnum("thrman_coalesce:pthread_cond_timedwait", rc);
+            perror_errnum("thrman_wait: pthread_cond_timedwait", rc);
         }
     }
-    pthread_mutex_unlock(&mutex);
+    pthread_mutex_unlock(&thrman_mutex);
 }
 
-/* Stop all database threads.  Different thread types get stopped in different
- * ways. */
+/*
+  Stop all database threads. Different thread types get stopped in different
+  ways.
+*/
 void stop_threads(struct dbenv *dbenv)
 {
     /* watchdog makes sure we don't get stuck trying to stop threads */
-    LOCK(&stop_thds_time_lk) { gbl_stop_thds_time = time_epoch(); }
+    LOCK(&stop_thds_time_lk)
+    {
+        gbl_stop_thds_time = time_epoch();
+    }
     UNLOCK(&stop_thds_time_lk);
 
     dbenv->stopped = 1;
     dbenv->no_more_sql_connections = 1;
     osql_set_cancelall(1);
 
-    if (gbl_appsock_thdpool)
-        thdpool_stop(gbl_appsock_thdpool);
-    if (gbl_sqlengine_thdpool)
-        thdpool_stop(gbl_sqlengine_thdpool);
-    if (gbl_osqlpfault_thdpool)
-        thdpool_stop(gbl_osqlpfault_thdpool);
+    if (gbl_appsock_thdpool) thdpool_stop(gbl_appsock_thdpool);
+    if (gbl_sqlengine_thdpool) thdpool_stop(gbl_sqlengine_thdpool);
+    if (gbl_osqlpfault_thdpool) thdpool_stop(gbl_osqlpfault_thdpool);
 
     /* Membar ensures that all other threads will now see that db is stopping */
     MEMORY_SYNC;
 
-    /* interrupt connections (they may have no timeout) */
+    /* Interrupt connections (they may have no timeout) */
     thrman_stop_sql_connections();
 
     /* Wake up the queue consumer threads */
     dbqueue_coalesce(dbenv);
 
-    /* Wait until the regular request threads are idle with no queue.  Note
+    /* Wait until the regular request threads are idle with no queue. Note
      * that they still continue regardless. */
     thd_coalesce(dbenv);
 
@@ -586,7 +710,10 @@ void stop_threads(struct dbenv *dbenv)
      * and queue consumers. */
     thrman_wait("threads to stop", thrman_check_threads_stopped_ll, NULL);
 
-    LOCK(&stop_thds_time_lk) { gbl_stop_thds_time = 0; }
+    LOCK(&stop_thds_time_lk)
+    {
+        gbl_stop_thds_time = 0;
+    }
     UNLOCK(&stop_thds_time_lk);
     /*watchdog_disable();*/ /* watchdog will fail when trying to run a sql query
                          * bc sql thds are stopped */
@@ -594,12 +721,9 @@ void stop_threads(struct dbenv *dbenv)
 
 void resume_threads(struct dbenv *dbenv)
 {
-    if (gbl_appsock_thdpool)
-        thdpool_resume(gbl_appsock_thdpool);
-    if (gbl_sqlengine_thdpool)
-        thdpool_resume(gbl_sqlengine_thdpool);
-    if (gbl_osqlpfault_thdpool)
-        thdpool_resume(gbl_osqlpfault_thdpool);
+    if (gbl_appsock_thdpool) thdpool_resume(gbl_appsock_thdpool);
+    if (gbl_sqlengine_thdpool) thdpool_resume(gbl_sqlengine_thdpool);
+    if (gbl_osqlpfault_thdpool) thdpool_resume(gbl_osqlpfault_thdpool);
     dbenv->stopped = 0;
     dbenv->no_more_sql_connections = 0;
     osql_set_cancelall(0);
@@ -610,7 +734,7 @@ void resume_threads(struct dbenv *dbenv)
     /*watchdog_enable();*/
 }
 
-/* Wait for all threads of a given type to exit */
+/* Wait for all threads of a given type to exit. */
 int thrman_wait_type_exit(enum thrtype type)
 {
     char descr[100];
@@ -625,22 +749,44 @@ int thrman_count_type(enum thrtype type)
 {
     int count = 0;
     if (type >= 0 && type < THRTYPE_MAX) {
-        pthread_mutex_lock(&mutex);
-        count = thr_type_counts[type];
-        pthread_mutex_unlock(&mutex);
+        pthread_mutex_lock(&thrman_mutex);
+        count = thr_attr[type].count;
+        pthread_mutex_unlock(&thrman_mutex);
     }
     return count;
 }
 
-/* Get the request logging object associated with this thread; create one if
- * we need to. */
+/*
+  Get the request logging object associated with this thread; create one if
+  we need to.
+*/
 struct reqlogger *thrman_get_reqlogger(struct thr_handle *thr)
 {
     if (thr) {
-        if (!thr->reqlogger)
-            thr->reqlogger = reqlog_alloc();
+        if (!thr->reqlogger) thr->reqlogger = reqlog_alloc();
         return thr->reqlogger;
     } else {
         return NULL;
     }
+}
+
+time_t thrman_get_when(struct thr_handle *thr)
+{
+    if (thr) return thr->when;
+    return 0;
+}
+
+int thrman_lock()
+{
+    return pthread_mutex_lock(&thrman_mutex);
+}
+
+int thrman_unlock()
+{
+    return pthread_mutex_unlock(&thrman_mutex);
+}
+
+struct thr_handle *thrman_next_thread(struct thr_handle *thread)
+{
+    return (thread) ? thread->lnk.next : 0;
 }

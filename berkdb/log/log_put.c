@@ -44,6 +44,7 @@ static const char revid[] = "$Id: log_put.c,v 11.145 2003/09/13 19:20:39 bostic 
 #include <netinet/in.h>
 
 #include "logmsg.h"
+#include "thrman.h"
 
 extern unsigned long long get_commit_context(const void *, uint32_t generation);
 extern int bdb_update_startlwm_berk(void *statearg, unsigned long long ltranid,
@@ -1620,6 +1621,9 @@ __log_write_td(arg)
 
 	dblp = (DB_LOG *)arg;
 	lp = dblp->reginfo.primary;
+
+        /* Register the thread */
+        thrman_register(THRTYPE_UNKNOWN);
 
 	pthread_mutex_lock(&log_write_lk);
 	do {

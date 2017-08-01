@@ -159,6 +159,9 @@ static void *watchdog_thread(void *arg)
     char *master;
     int sockpool_timeout;
 
+    /* Register the thread */
+    thrman_register(THRTYPE_WATCHDOG);
+
     rc = pthread_mutex_init(&gbl_watchdog_kill_mutex, NULL);
     if (rc != 0) {
         logmsg(LOGMSG_FATAL, "pthread_mutex_init gbl_watchdog_kill_mutex failed\n");
@@ -419,6 +422,9 @@ static void *watchdog_watcher_thread(void *arg)
 {
     extern int gbl_watchdog_watch_threshold;
     int failed_once = 0;
+
+    /* Register the thread */
+    thrman_register(THRTYPE_WATCHDOG_WATCHER);
 
     while (!thedb->exiting) {
         sleep(10);

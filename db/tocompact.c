@@ -84,6 +84,8 @@ static void *compact_my_table(void *arg)
     int rc = 0;
 
     thread_started("compact table");
+    /* Register the thread */
+    thrman_register(THRTYPE_COMPACT);
 
     if (!ce || !ce->db) {
         printf("compact_thread: no db provided!\n");

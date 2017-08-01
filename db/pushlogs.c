@@ -52,10 +52,12 @@ static void *pushlogs_thread(void *voidarg)
 {
     int rc;
     int lastreport = 0;
-    struct thr_handle *thr_self = thrman_register(THRTYPE_PUSHLOG);
+    struct thr_handle *thr_self;
     int nwrites = 0;
 
     thread_started("pushlog");
+    /* Register the thread */
+    thr_self = thrman_register(THRTYPE_PUSHLOG);
 
     memset(junk, '@', sizeof(junk));
 

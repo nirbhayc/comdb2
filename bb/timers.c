@@ -21,10 +21,10 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <time.h>
-
 #include <timers.h>
 
 #include <logmsg.h>
+#include "thrman.h"
 
 /* timer traps */
 static pthread_mutex_t timerlk = PTHREAD_MUTEX_INITIALIZER;
@@ -199,6 +199,10 @@ void *timer_thread(void *p)
     int rc;
     int oneshot;
     int ms;
+
+    /* Register the thread */
+    //thrman_register(THRTYPE_TIMER);
+
     for (;;) {
         tnow = time_epochms();
         pthread_mutex_lock(&timerlk);

@@ -37,6 +37,7 @@
 #include <string.h>
 #include <pthread.h>
 #include "thread_util.h"
+#include "thrman.h"
 
 #ifdef __DGUX__
 #include <siginfo.h>
@@ -3818,6 +3819,10 @@ struct net_decom_node_arg {
 static void *net_decom_node_delayed(void *p)
 {
     struct net_decom_node_arg *args = (struct net_decom_node_arg *)p;
+
+    /* Register thread */
+    thrman_register(THRTYPE_DECOM_NODE);
+
     sleep(2);
     net_decom_node(args->netinfo_ptr, args->host);
     free(args);
@@ -3840,7 +3845,7 @@ static int run_net_decom_node_delayed(netinfo_type *netinfo_ptr,
     int rc = pthread_create(&tid, &(netinfo_ptr->pthread_attr_detach),
                             net_decom_node_delayed, args);
     if (rc != 0) {
-       logmsg(LOGMSG_ERROR, "%s: pthread_create reader_thread failed rc %d\n", __func__, rc);
+       logmsg(LOGMSG_ERROR, "%s: pthread_create net_decom_node_delayed thread failed rc %d\n", __func__, rc);
     }
 
     return 0;
@@ -4152,6 +4157,8 @@ static void *writer_thread(void *args)
     struct timeval tv;
 #endif
     thread_started("net writer");
+    /* Register the thread */
+    thrman_register(THRTYPE_WRITER);
 
     host_node_ptr = args;
     netinfo_ptr = host_node_ptr->netinfo_ptr;
@@ -4479,6 +4486,8 @@ static void *reader_thread(void *arg)
     char fromhost[256], tohost[256];
 
     thread_started("net reader");
+    /* Register the thread */
+    thrman_register(THRTYPE_READER);
 
     host_node_ptr = arg;
     netinfo_ptr = host_node_ptr->netinfo_ptr;
@@ -4763,6 +4772,8 @@ static void *connect_thread(void *arg)
     int connport = -1;
 
     thread_started("connect thread");
+    /* Register the thread */
+    thrman_register(THRTYPE_CONNECT);
 
     int len;
 
@@ -5364,6 +5375,9 @@ static void *connect_and_accept(void *arg)
     char *host;
     int netnum;
 
+    /* Register the thread */
+    thrman_register(THRTYPE_CONNECT_AND_ACCEPT);
+
     /* retrieve arguments */
     ca = (connect_and_accept_t *)arg;
     netinfo_ptr = ca->netinfo_ptr;
@@ -5466,6 +5480,8 @@ static void *accept_thread(void *arg)
     watchlist_node_type *watchlist_node;
 
     thread_started("net accept");
+    /* Register the thread */
+    thrman_register(THRTYPE_ACCEPT);
 
 #ifdef PER_THREAD_MALLOC
     pthread_setspecific(thread_type_key, (void *)"net_accept_thr");
@@ -5749,6 +5765,8 @@ static void *heartbeat_send_thread(void *arg)
     netinfo_type *netinfo_ptr;
 
     thread_started("net heartbeat send");
+    /* Register the thread */
+    thrman_register(THRTYPE_HEARTBEAT_SEND);
 
     netinfo_ptr = (netinfo_type *)arg;
 
@@ -5961,6 +5979,8 @@ static void *heartbeat_check_thread(void *arg)
     int running_user_func;
 
     thread_started("net heartbeat check");
+    /* Register the thread */
+    thrman_register(THRTYPE_HEARTBEAT_CHECK);
 
     netinfo_ptr = (netinfo_type *)arg;
     netinfo_ptr->heartbeat_check_thread_arch_tid = getarchtid();

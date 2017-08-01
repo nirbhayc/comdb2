@@ -1,5 +1,5 @@
 /*
-   Copyright 2015 Bloomberg Finance L.P.
+   Copyright 2015, 2017 Bloomberg Finance L.P.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -17,64 +17,99 @@
 #ifndef INCLUDED_THRMAN_H
 #define INCLUDED_THRMAN_H
 
+/* Forward declarations. */
 struct thr_handle;
+struct dbenv;
+typedef struct sqlpool sqlpool_t;
 
 enum thrtype {
     THRTYPE_UNKNOWN = -1,
     THRTYPE_APPSOCK = 0,
-    THRTYPE_SQLPOOL = 1,
-    THRTYPE_SQL = 2,
-    THRTYPE_REQ = 3,
-    THRTYPE_CONSUMER = 4,
-    THRTYPE_PURGEBLKSEQ = 5,
-    THRTYPE_PREFAULT = 6,
-    THRTYPE_VERIFY = 7,
-    THRTYPE_ANALYZE = 8,
-    THRTYPE_PUSHLOG = 9,
-    THRTYPE_SCHEMACHANGE = 10,
-    THRTYPE_BBIPC_WAITFT = 11,
-    THRTYPE_LOGDELHOLD = 12,
-    THRTYPE_OSQL = 13,
-    THRTYPE_COORDINATOR = 14,
-    THRTYPE_APPSOCK_POOL = 15,
-    THRTYPE_SQLENGINEPOOL = 16,
-    THRTYPE_APPSOCK_SQL = 17,
-    THRTYPE_MTRAP = 18,
-    THRTYPE_QSTAT = 19,
-    THRTYPE_PURGEFILES = 20,
-    THRTYPE_BULK_IMPORT = 21,
-    THRTYPE_TRIGGER = 22,
-    THRTYPE_MAX
+    THRTYPE_SQLPOOL,
+    THRTYPE_SQL,
+    THRTYPE_REQ,
+    THRTYPE_CONSUMER,
+    THRTYPE_PURGEBLKSEQ,
+    THRTYPE_PREFAULT_HELPER,
+    THRTYPE_VERIFY,
+    THRTYPE_ANALYZE,
+    THRTYPE_PUSHLOG,
+    THRTYPE_SCHEMACHANGE,
+    THRTYPE_BBIPC_WAITFT,
+    THRTYPE_LOGDELHOLD,
+    THRTYPE_OSQL,
+    THRTYPE_COORDINATOR,
+    THRTYPE_APPSOCK_POOL,
+    THRTYPE_SQLENGINEPOOL,
+    THRTYPE_APPSOCK_SQL,
+    THRTYPE_MTRAP,
+    THRTYPE_QSTAT,
+    THRTYPE_PURGEFILES,
+    THRTYPE_BULK_IMPORT,
+    THRTYPE_TRIGGER,
+    THRTYPE_STAT,
+    THRTYPE_TIMER,
+    THRTYPE_QFLUSH,
+    THRTYPE_OSQL_HEARTBEAT,
+    THRTYPE_PREFAULT_IO,
+    THRTYPE_EXIT_HANDLER,
+    THRTYPE_ASYNC_LOG,
+    THRTYPE_COMPACT,
+    THRTYPE_SCHEDULER,
+    THRTYPE_WATCHDOG,
+    THRTYPE_WATCHDOG_WATCHER,
+    THRTYPE_DECOM_NODE,
+    THRTYPE_READER,
+    THRTYPE_WRITER,
+    THRTYPE_CONNECT,
+    THRTYPE_ACCEPT,
+    THRTYPE_CONNECT_AND_ACCEPT,
+    THRTYPE_HEARTBEAT_SEND,
+    THRTYPE_HEARTBEAT_CHECK,
+    /*...*/
+    THRTYPE_MAX,
 };
 
 enum thrsubtype {
     THRSUBTYPE_UNKNOWN = -1,
     THRSUBTYPE_TOPLEVEL_SQL = 0,
-    THRSUBTYPE_LUA_SQL = 1
+    THRSUBTYPE_LUA_SQL = 1,
+    /*...*/
+    THRSUBTYPE_MAX,
 };
 
 void thrman_init(void);
 struct thr_handle *thrman_register(enum thrtype type);
-void thrman_change_type(struct thr_handle *thr, enum thrtype newtype);
 void thrman_unregister(void);
-struct thr_handle *thrman_self(void);
-void thrman_where(struct thr_handle *thr, const char *where);
-void thrman_wheref(struct thr_handle *thr, const char *fmt, ...);
-void thrman_origin(struct thr_handle *thr, const char *origin);
+
+/* Setters */
 void thrman_set_sqlpool(struct thr_handle *thr, sqlpool_t *sqlpool);
 void thrman_setid(struct thr_handle *thr, const char *idstr);
 void thrman_setfd(struct thr_handle *thr, int fd);
-void thrman_setsqlthd(struct thr_handle *thr);
-enum thrtype thrman_get_type(struct thr_handle *thr);
-const char *thrman_type2a(enum thrtype type);
-char *thrman_describe(struct thr_handle *thr, char *buf, size_t szbuf);
-void thrman_dump(void);
-int thrman_count_type(enum thrtype type);
-struct reqlogger *thrman_get_reqlogger(struct thr_handle *thr);
-void thrman_stop_sql_connections(void);
-int thrman_wait_type_exit(enum thrtype type);
-
-enum thrsubtype thrman_get_subtype(struct thr_handle *thr);
 void thrman_set_subtype(struct thr_handle *thr, enum thrsubtype subtype);
+void thrman_where(struct thr_handle *thr, const char *where);
+void thrman_wheref(struct thr_handle *thr, const char *fmt, ...);
+void thrman_origin(struct thr_handle *thr, const char *origin);
 
-#endif
+/* Getters */
+struct thr_handle *thrman_self(void);
+pthread_t thrman_get_tid(struct thr_handle *thr);
+enum thrtype thrman_get_type(struct thr_handle *thr);
+enum thrsubtype thrman_get_sub_type(struct thr_handle *thr);
+const char *thrman_get_where(struct thr_handle *thr);
+struct reqlogger *thrman_get_reqlogger(struct thr_handle *thr);
+time_t thrman_get_when(struct thr_handle *thr);
+
+/* Misc functions */
+void thrman_change_type(struct thr_handle *thr, enum thrtype newtype);
+char *thrman_describe(struct thr_handle *thr, char *buf, size_t szbuf);
+const char *thrman_type2a(enum thrtype type);
+void thrman_dump(void);
+void thrman_stop_sql_connections(void);
+void stop_threads(struct dbenv *dbenv);
+void resume_threads(struct dbenv *dbenv);
+int thrman_lock();
+int thrman_unlock();
+struct thr_handle *thrman_next_thread(struct thr_handle *thread);
+
+#endif /* INCLUDED_THRMAN_H */
