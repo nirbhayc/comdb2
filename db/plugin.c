@@ -1,5 +1,5 @@
 /*
-   Copyright 2015 Bloomberg Finance L.P.
+   Copyright 2015, 2017 Bloomberg Finance L.P.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -19,12 +19,11 @@
 #include <errno.h>
 #include <string.h>
 #include <stddef.h>
-
 #include <dlfcn.h>
+#include <segstring.h>
 
 #include "comdb2.h"
 #include "rtcpu.h"
-#include <segstring.h>
 
 static void usage(void)
 {
