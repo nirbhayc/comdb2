@@ -40,7 +40,6 @@ void listc_init(listc_t *l, size_t diff);
 listc_t *listc_new(size_t diff);
 void *listc_atl(listc_t *l, void *obj);
 void *listc_abl(listc_t *l, void *obj);
-void *listc_rfl(listc_t *l, void *obj);
 void *listc_rtl(listc_t *l);
 void *listc_rbl(listc_t *l);
 int listc_size(listc_t *l);
@@ -103,6 +102,7 @@ static inline void listc_verify_count(listc_t *l)
 
 #endif
 
+/* Initialize the list struct. */
 void listc_init(listc_t *l, size_t diff)
 {
     l->top = 0;
@@ -111,6 +111,7 @@ void listc_init(listc_t *l, size_t diff)
     l->diff = diff;
 }
 
+/* Alloc, initialize and return a pointer to the list struct. */
 listc_t *listc_new(size_t diff)
 {
     listc_t *l;
@@ -285,6 +286,7 @@ void *listc_rbl(listc_t *l)
     return listc_rfl(l, l->bot);
 }
 
+/* Returns number of elements in the list. */
 int listc_size(listc_t *l)
 {
 #if DEBUG_LISTS

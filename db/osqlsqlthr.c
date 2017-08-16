@@ -990,7 +990,7 @@ static int osql_send_usedb_logic_int(char *tablename, struct sqlclntstate *clnt,
         free(tblname);
 
     if (osql->tablename) {
-        if (osql->tablenamelen == (strlen(tablename) + 1) &&
+        if (osql->tablenamelen == tablenamelen) &&
             !strncmp(tablename, osql->tablename, osql->tablenamelen))
             /* we've already sent this, skip */
             return SQLITE_OK;

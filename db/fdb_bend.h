@@ -26,7 +26,7 @@ typedef struct svc_cursor svc_cursor_t;
 int fdb_svc_init(void);
 
 /**
- * Destroy the remove cursor service center
+ * Destroy the remote cursor service center
  *
  */
 void fdb_svc_destroy(void);

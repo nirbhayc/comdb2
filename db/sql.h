@@ -310,7 +310,7 @@ struct sqlclntstate {
     int *type_overrides;
     int recno;
     struct fsqlreq req;
-    int client_understands_query_stats;
+    int64_t flags;
     char tzname[CDB2_MAX_TZNAME];
     int dtprec;
     struct conninfo conninfo;
@@ -746,7 +746,7 @@ extern int gbl_master_swing_osql_verbose;
 
 /* takes care of both stat1 and stat2 */
 #define is_sqlite_stat(x)                                                      \
-    strncmp((x), "sqlite_stat", sizeof("sqlite_stat") - 1) == 0
+    (strncmp((x), "sqlite_stat", sizeof("sqlite_stat") - 1) == 0)
 
 #define is_stat1(x) (strcmp((x), "sqlite_stat1") == 0)
 #define is_stat2(x) (strcmp((x), "sqlite_stat2") == 0)

@@ -5768,35 +5768,40 @@ static int offload_net_send(char *host, int usertype, void *data, int datalen,
          printf("NET SEND %d tmp=%llu\n", usertype, osql_log_time());
 #endif
             rc = net_send(netinfo_ptr, host, usertype, data, datalen, nodelay);
-
-            if (NET_SEND_FAIL_QUEUE_FULL == rc ||
-                NET_SEND_FAIL_MALLOC_FAIL == rc || NET_SEND_FAIL_NOSOCK == rc) {
-
+            switch (rc) {
+            case 0:
+                break;                      /* Success */
+            case NET_SEND_FAIL_QUEUE_FULL:  /* fallthrough */
+            case NET_SEND_FAIL_MALLOC_FAIL: /* fallthrough */
+            case NET_SEND_FAIL_NOSOCK:
                 if (total_wait > gbl_osql_bkoff_netsend_lmt) {
-                    logmsg(LOGMSG_ERROR, "%s:%d giving up sending to %s\n", __FILE__,
-                            __LINE__, host);
+                    logmsg(LOGMSG_ERROR, "%s:%d giving up sending to %s\n",
+                           __FILE__, __LINE__, host);
                     return -1;
                 }
 
                 if (rc2 = osql_comm_check_bdb_lock()) {
-                    logmsg(LOGMSG_ERROR, "%s:%d giving up sending to %s\n", __FILE__,
-                            __LINE__, host);
+                    logmsg(LOGMSG_ERROR, "%s:%d giving up sending to %s\n",
+                           __FILE__, __LINE__, host);
                     return rc;
                 }
 
                 poll(NULL, 0, backoff);
                 /*backoff *= 2; */
                 total_wait += backoff;
-            } else if (NET_SEND_FAIL_CLOSED == rc) {
-                /* on closed sockets, we simply return; a callback
+                break;
+            case NET_SEND_FAIL_CLOSED:
+                /*
+                   On closed sockets, we simply return; a callback
                    will trigger on the other side signalling we've
-                   lost the comm party */
+                   lost the comm party.
+                */
                 return rc;
-            } else if (rc) {
+            default:
                 unknownerror_retry++;
                 if (unknownerror_retry >= UNK_ERR_SEND_RETRY) {
-                    logmsg(LOGMSG_ERROR, "%s:%d giving up sending to %s\n", __FILE__,
-                            __LINE__, host);
+                    logmsg(LOGMSG_ERROR, "%s:%d giving up sending to %s\n",
+                           __FILE__, __LINE__, host);
                     comdb2_linux_cheap_stack_trace();
                     return -1;
                 }

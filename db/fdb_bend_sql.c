@@ -92,7 +92,6 @@ int fdb_svc_cursor_open_sql(char *tid, char *cid, int code_release, int version,
                             int flags, int isuuid, struct sqlclntstate **pclnt)
 {
     struct sqlclntstate *clnt = NULL;
-    int rc;
 
     /* we need to create a private clnt state */
     clnt = (struct sqlclntstate *)calloc(1, sizeof(struct sqlclntstate));

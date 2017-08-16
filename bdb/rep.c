@@ -4926,6 +4926,9 @@ void *watcher_thread(void *arg)
         if (!gbl_new_snapisol_asof)
             bdb_clean_pglogs_queues(bdb_state);
 
+        /*
+          TODO: (Nirbhay) This thread is also created duing bdb_open_int().
+        */
         if (bdb_state->attr->coherency_lease &&
             !bdb_state->coherency_lease_thread) {
             void create_coherency_lease_thread(bdb_state_type * bdb_state);

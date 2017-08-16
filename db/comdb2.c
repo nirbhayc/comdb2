@@ -921,8 +921,7 @@ int get_max_reclen(struct dbenv *dbenv)
         reclen = 0;
         sscanf(line, "table %s %d\n", tablename, &reclen);
         if (reclen) {
-            if (strncmp(tablename, "sqlite_stat", 11) != 0) {
-                if (reclen > max)
+            if (!is_sqlite_stat(tablename) && (reclen > max))
                     max = reclen;
             }
         }
@@ -1412,8 +1411,6 @@ void clean_exit(void)
     if (rc != 0)
        logmsg(LOGMSG_ERROR, "error backend_close() rc %d\n", rc);
 
-    logmsg(LOGMSG_WARN, "goodbye\n");
-
     if (COMDB2_SOCK_FSTSND_ENABLED()) {
         comdb2_shm_clr_flag(thedb->dbnum, CMDB2_SHMFLG_SOCK_FSTSND);
     }
@@ -1452,6 +1449,8 @@ void clean_exit(void)
     cleanup_switches();
 #endif
     free_gbl_tunables();
+
+    logmsg(LOGMSG_WARN, "goodbye\n");
 
     exit(0);
 }
@@ -2992,10 +2991,10 @@ static int init_sqlite_table(struct dbenv *dbenv, char *table)
 
     const char *schema;
 
-    if (strcmp(table, "sqlite_stat1") == 0) {
+    if (is_stat1(table)) {
        schema = sqlite_stat1;
     }
-    else if (strcmp(table, "sqlite_stat4") == 0) {
+    else if (is_stat4(table)) {
        schema = sqlite_stat4;
     }
     else {

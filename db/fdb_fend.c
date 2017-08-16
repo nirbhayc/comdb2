@@ -3840,7 +3840,7 @@ int fdb_is_sqlite_stat(fdb_t *fdb, int rootpage)
 
     ent = get_fdb_tbl_ent_by_rootpage_from_fdb(fdb, rootpage);
 
-    return strncasecmp(ent->tbl->name, "sqlite_stat", strlen("sqlite_stat")) ==
+    return strncasecmp(ent->tbl->name, "sqlite_stat", sizeof("sqlite_stat")-1) ==
            0;
 }
 
