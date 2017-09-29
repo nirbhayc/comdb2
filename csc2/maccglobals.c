@@ -61,6 +61,9 @@ int cn_p;              /* pointer into casenames[] */
 int ixsize[MAXINDEX];  /* index size */
 int ixflags[MAXINDEX]; /* index size */
 
+int on_conflict;
+int ix_on_conflict[MAXINDEX];
+
 int flag_anyname = 0; /* allow any db name - normally restricted to xxDB*/
 char sync_names[4][8] = {"none", "full", "normal", "source"};
 int cluster_nodes[MAX_CLUSTER];
@@ -123,6 +126,7 @@ void init_globals()
     memset(un_case, 0, sizeof(un_case));
     memset(ixsize, 0, sizeof(ixsize));
     memset(ixflags, 0, sizeof(ixflags));
+    memset(ix_on_conflict, 0, sizeof(ix_on_conflict));
     memset(keyixnum, 0, sizeof(keyixnum));
     memset(keyexprnum, 0, sizeof(keyexprnum));
     memset(expr, 0, sizeof(expr));

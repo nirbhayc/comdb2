@@ -490,6 +490,9 @@ struct sqlclntstate {
     uint8_t **idxInsert;
     uint8_t **idxDelete;
 
+    /* On conflict action */
+    uint8_t on_conflict;
+
     int8_t wrong_db;
     int8_t is_lua_sql_thread;
     int8_t skip_feature;

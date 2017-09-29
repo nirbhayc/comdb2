@@ -243,9 +243,8 @@ add_record_int(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
     struct schema *dbname_schema = find_tag_schema(iq->usedb->dbname, tag);
     if (dbname_schema == NULL) {
         if (iq->debug)
-            if (iq->debug)
-                reqprintf(iq, "UNKNOWN TAG %s TABLE %s\n", tag,
-                          iq->usedb->dbname);
+            reqprintf(iq, "UNKNOWN TAG %s TABLE %s\n", tag,
+                      iq->usedb->dbname);
         *opfailcode = OP_FAILED_BAD_REQUEST;
         retrc = ERR_BADREQ;
         ERR;
@@ -645,6 +644,622 @@ int add_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
                           p_buf_rec, p_buf_rec_end, fldnullmap, blobs, maxblobs,
                           opfailcode, ixfailnum, rrn, genid, ins_keys, opcode,
                           blkpos, flags);
+}
+
+int replace_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
+                   const uint8_t *p_buf_tag_name_end, uint8_t *p_buf_rec,
+                   const uint8_t *p_buf_rec_end, const unsigned char fldnullmap[32],
+                   blob_buffer_t *blobs, size_t maxblobs, int *opfailcode,
+                   int *ixfailnum, int *rrn, unsigned long long *genid,
+                   unsigned long long ins_keys, int opcode, int blkpos, int flags,
+                   int on_conflict)
+{
+    char tag[MAXTAGLEN + 1];
+    int is_od_tag;
+    int rc = 0;
+    int retrc = 0;
+    int expected_dat_len;
+    struct schema *dynschema = NULL;
+    void *od_dta;
+    size_t od_len;
+    void *mallocced_memory = NULL;
+    size_t blobno;
+    int prefixes = 0;
+    unsigned char lclnulls[64];
+    const char *ondisktag;
+    int using_myblobs = 0;
+    int conv_flags = 0;
+    blob_buffer_t myblobs[MAXBLOBS];
+    const char *tagdescr = (const char *)p_buf_tag_name;
+    size_t taglen = p_buf_tag_name_end - p_buf_tag_name;
+    void *record = p_buf_rec;
+    size_t reclen = p_buf_rec_end - p_buf_rec;
+    char *od_dta_tail = NULL;
+    int od_len_tail;
+
+    *ixfailnum = -1;
+
+    if (!blobs) {
+        bzero(myblobs, sizeof(myblobs));
+        maxblobs = MAXBLOBS;
+        blobs = myblobs;
+        using_myblobs = 1;
+    }
+
+    if (flags & RECFLAGS_NEW_SCHEMA)
+        ondisktag = ".NEW..ONDISK";
+    else
+        ondisktag = ".ONDISK";
+
+    if (iq->debug) {
+        reqpushprefixf(iq, "replace_record: ");
+        prefixes++;
+    }
+
+    if (!iq->usedb) {
+        if (iq->debug)
+            reqprintf(iq, "NO USEDB SET");
+        retrc = ERR_BADREQ;
+        ERR;
+    }
+
+    if (iq->debug) {
+        reqpushprefixf(iq, "TBL %s ", iq->usedb->dbname);
+        prefixes++;
+    }
+
+    if ((flags & RECFLAGS_NEW_SCHEMA) &&
+        ((gbl_partial_indexes && iq->usedb->ix_partial) ||
+         (gbl_expressions_indexes && iq->usedb->ix_expr))) {
+        int ixnum;
+        int rebuild_keys = 0;
+        if (!gbl_use_plan || !iq->usedb->plan)
+            rebuild_keys = 1;
+        else {
+            for (ixnum = 0; ixnum < iq->usedb->nix; ixnum++) {
+                if (iq->usedb->plan->ix_plan[ixnum] == -1) {
+                    rebuild_keys = 1;
+                    break;
+                }
+            }
+        }
+        if (rebuild_keys) {
+            if (iq->idxInsert || iq->idxDelete) {
+                free_cached_idx(iq->idxInsert);
+                free_cached_idx(iq->idxDelete);
+                free(iq->idxInsert);
+                free(iq->idxDelete);
+                iq->idxInsert = iq->idxDelete = NULL;
+            }
+            ins_keys = -1ULL;
+        }
+    }
+
+
+    if (!(flags & RECFLAGS_NEW_SCHEMA)) { // dont lock if adding from SC
+
+        int d = BDB_ATTR_GET(thedb->bdb_attr, DELAY_LOCK_TABLE_RECORD_C);
+        if(d) {
+            if (iq->debug) reqprintf(iq, "Sleeping for %d usec", d);
+            usleep(d);
+        }
+
+        rc = bdb_lock_table_read(iq->usedb->handle, trans);
+        if (rc == BDBERR_DEADLOCK) {
+            if (iq->debug)
+                reqprintf(iq, "LOCK TABLE READ DEADLOCK");
+            retrc = RC_INTERNAL_RETRY;
+            ERR;
+        } else if (rc) {
+            if (iq->debug)
+                reqprintf(iq, "LOCK TABLE READ ERROR: %d", rc);
+            *opfailcode = OP_FAILED_INTERNAL;
+            retrc = ERR_INTERNAL;
+            ERR;
+        }
+
+        if (iq->usedb->tableversion != iq->usedbtablevers) {
+            if (iq->debug)
+                reqprintf(iq, "Stale buffer: usedb version %d "
+                              "vs curr ver %d\n",
+                          iq->usedbtablevers, iq->usedb->tableversion);
+            *opfailcode = OP_FAILED_VERIFY;
+            retrc = ERR_VERIFY;
+            ERR;
+        }
+    }
+
+    rc = resolve_tag_name(iq, tagdescr, taglen, &dynschema, tag, sizeof(tag));
+    if (rc != 0) {
+        reqerrstrhdr(iq, "Table '%s' ", iq->usedb->dbname);
+        reqerrstr(iq, COMDB2_CSTRT_RC_INVL_TAG,
+                  "invalid tag description '%.*s'", taglen, tagdescr);
+        *opfailcode = OP_FAILED_BAD_REQUEST;
+        retrc = ERR_BADREQ;
+        ERR;
+    }
+
+    if ((!dynschema && (flags & RECFLAGS_DYNSCHEMA_NULLS_ONLY)) ||
+        (!fldnullmap)) {
+        bzero(lclnulls, sizeof(lclnulls));
+        fldnullmap = lclnulls;
+    }
+
+    /* Tweak blob-descriptors for static tags. */
+    if (gbl_disallow_null_blobs && !dynschema &&
+        (flags & RECFLAGS_DYNSCHEMA_NULLS_ONLY)) {
+        static_tag_blob_conversion(iq->usedb->dbname, tag, record, blobs,
+                                   maxblobs);
+    }
+
+    if (iq->debug) {
+        reqpushprefixf(iq, "TAG %s ", tag);
+        prefixes++;
+    }
+
+    struct schema *dbname_schema = find_tag_schema(iq->usedb->dbname, tag);
+    if (dbname_schema == NULL) {
+        if (iq->debug)
+            reqprintf(iq, "UNKNOWN TAG %s TABLE %s\n", tag,
+                      iq->usedb->dbname);
+        *opfailcode = OP_FAILED_BAD_REQUEST;
+        retrc = ERR_BADREQ;
+        ERR;
+    }
+
+    expected_dat_len = get_size_of_schema(dbname_schema);
+    if ((size_t)expected_dat_len > reclen) {
+        /* Another check.  we don't care about padding, but we need to make
+           sure the user-supplied struct has enough room to contain the last
+           field. */
+        struct field *f;
+        int mismatched_size = 1;
+
+        if (gbl_allow_mismatched_tag_size) {
+            f = &dbname_schema->member[dbname_schema->nmembers - 1];
+            if (f->offset + f->len <= reclen)
+                mismatched_size = 0;
+        }
+
+        if (mismatched_size) {
+            if (iq->debug)
+                reqprintf(iq, "BAD DTA LEN %u TAG %s EXPECTS DTALEN %u\n",
+                          reclen, tag, expected_dat_len);
+            reqerrstrhdr(iq, "Table '%s' ", iq->usedb->dbname);
+            reqerrstr(iq, COMDB2_ADD_RC_INVL_DTA,
+                      "bad data length %u tag '%s' expects data length %u\n",
+                      reclen, tag, expected_dat_len);
+            *opfailcode = OP_FAILED_BAD_REQUEST;
+            retrc = ERR_BADREQ;
+            ERR;
+        }
+    }
+
+    reclen = expected_dat_len;
+
+    if (!(flags & RECFLAGS_NO_BLOBS) &&
+        check_blob_buffers(iq, blobs, maxblobs, iq->usedb->dbname, tag,
+                           dbname_schema, record, fldnullmap) != 0) {
+        reqerrstrhdr(iq, "Table '%s' ", iq->usedb->dbname);
+        reqerrstr(iq, COMDB2_ADD_RC_INVL_BLOB,
+                  "no blobs flags with blob buffers");
+        *opfailcode = OP_FAILED_BAD_REQUEST;
+        retrc = ERR_BADREQ;
+        ERR;
+    }
+
+    /* Also check blob sizes */
+    if (!(flags & RECFLAGS_NO_BLOBS)) {
+        if (check_blob_sizes(iq, blobs, maxblobs)) {
+            retrc = ERR_BLOB_TOO_LARGE;
+            ERR;
+        }
+    }
+
+    struct schema *ondisktagsc; // schema for .ONDISK
+    int tag_same_as_ondisktag = (strcmp(tag, ondisktag) == 0);
+
+    if (tag_same_as_ondisktag) {
+        /* we have the ondisk data already, no conversion needed */
+        od_dta = record;
+        od_len = reclen;
+        is_od_tag = 1;
+
+        ondisktagsc = dbname_schema;
+    } else {
+        int od_len_int;
+        struct convert_failure reason;
+
+        /* we need to convert the record to ondisk format */
+        is_od_tag = 0;
+        od_len_int = getdatsize(iq->usedb);
+        if (od_len_int <= 0) {
+            if (iq->debug)
+                reqprintf(iq, "BAD ONDISK SIZE");
+            reqerrstrhdr(iq, "Table '%s' ", iq->usedb->dbname);
+            reqerrstr(iq, COMDB2_ADD_RC_INVL_DTA, "bad ondisk size");
+            *opfailcode = OP_FAILED_BAD_REQUEST;
+            retrc = ERR_BADREQ;
+            ERR;
+        }
+
+        od_len = (size_t)od_len_int;
+        mallocced_memory = alloca(od_len);
+        if (!mallocced_memory) {
+            logmsg(LOGMSG_ERROR, "add_record: malloc %u failed! (table %s tag %s)\n",
+                    (unsigned)od_len, iq->usedb->dbname, tag);
+            *opfailcode = OP_FAILED_INTERNAL;
+            retrc = ERR_INTERNAL;
+            ERR;
+        }
+        od_dta = mallocced_memory;
+
+        if (iq->have_client_endian &&
+            TAGGED_API_LITTLE_ENDIAN == iq->client_endian) {
+            conv_flags |= CONVERT_LITTLE_ENDIAN_CLIENT;
+        }
+
+        rc = ctag_to_stag_blobs_tz(iq->usedb->dbname, tag, record, WHOLE_BUFFER,
+                                   fldnullmap, ondisktag, od_dta, conv_flags,
+                                   &reason /*fail reason*/, blobs, maxblobs,
+                                   iq->tzname);
+        if (rc == -1) {
+            char str[128];
+            convert_failure_reason_str(&reason, iq->usedb->dbname, tag,
+                                       ondisktag, str, sizeof(str));
+            if (iq->debug) {
+                reqprintf(iq, "ERR CONVERT DTA %s->%s '%s'", tag, ondisktag, str);
+            }
+            reqerrstrhdr(iq, "Table '%s' ", iq->usedb->dbname);
+            reqerrstr(iq, COMDB2_ADD_RC_CNVT_DTA,
+                      "error convert data %s->.ONDISK '%s'", tag, str);
+            *opfailcode = OP_FAILED_CONVERSION;
+            retrc = ERR_CONVERT_DTA;
+            ERR;
+        }
+
+        ondisktagsc = find_tag_schema(iq->usedb->dbname, ondisktag);
+    }
+
+    struct convert_failure reason;
+    rc = validate_server_record(od_dta, od_len, ondisktagsc, &reason);
+    if (rc == -1) {
+        char str[128];
+        convert_failure_reason_str(&reason, iq->usedb->dbname, tag,
+                                   ondisktag, str, sizeof(str));
+        if (iq->debug) {
+            reqprintf(iq, "ERR VERIFY DTA %s->.ONDISK '%s'", tag, str);
+        }
+        reqerrstrhdr(
+            iq, "Null constraint violation for column '%s' on table '%s'. ",
+            reason.target_schema->member[reason.target_field_idx].name,
+            iq->usedb->dbname);
+        reqerrstr(iq, COMDB2_ADD_RC_CNVT_DTA,
+                  "null constraint error data %s->.ONDISK '%s'", tag, str);
+        *opfailcode = ERR_NULL_CONSTRAINT;
+        rc = retrc = ERR_NULL_CONSTRAINT;
+        ERR;
+    }
+
+    /* Remove all the conflict records. */
+    // TODO: Only for unique keys.
+    for (int ixnum = 0; ixnum < iq->usedb->nix; ixnum++) {
+        int ixkeylen;
+        char ixtag[MAXTAGLEN];
+        char key[MAXKEYLEN];
+        char mangled_key[MAXKEYLEN];
+        int failcode = 0;
+        int fndrrn = 0;
+        unsigned long long fndgenid = 0LL;
+
+        ixkeylen = getkeysize(iq->usedb, ixnum);
+        if (ixkeylen < 0) {
+            if (iq->debug)
+                reqprintf(iq, "BAD INDEX %d OR KEYLENGTH %d", ixnum,
+                          ixkeylen);
+            reqerrstrhdr(iq, "Table '%s' ", iq->usedb->dbname);
+            reqerrstr(iq, COMDB2_ADD_RC_INVL_KEY,
+                      "bad index %d or keylength %d", ixnum, ixkeylen);
+            *ixfailnum = ixnum;
+            *opfailcode = OP_FAILED_BAD_REQUEST;
+            retrc = ERR_BADREQ;
+            ERR;
+        }
+
+        snprintf(ixtag, sizeof(ixtag), "%s_IX_%d", ondisktag, ixnum);
+
+        if (iq->idxInsert)
+            rc = create_key_from_ireq(iq, ixnum, 0, &od_dta_tail,
+                                      &od_len_tail, mangled_key, od_dta,
+                                      od_len, key);
+        else
+            rc = create_key_from_ondisk_sch_blobs(
+                iq->usedb, ondisktagsc, ixnum, &od_dta_tail, &od_len_tail,
+                mangled_key, ondisktag, od_dta, od_len, ixtag, key, NULL,
+                blobs, maxblobs, iq->tzname);
+        if (rc == -1) {
+            if (iq->debug)
+                reqprintf(iq, "CAN'T FORM INDEX %d", ixnum);
+            reqerrstrhdr(iq, "Table '%s' ", iq->usedb->dbname);
+            reqerrstr(iq, COMDB2_ADD_RC_INVL_IDX, "cannot form index %d",
+                      ixnum);
+            *ixfailnum = ixnum;
+            *opfailcode = OP_FAILED_INTERNAL + ERR_FORM_KEY;
+            retrc = rc;
+            ERR;
+        }
+
+        rc = ix_find_by_key_tran(iq, key, ixkeylen, ixnum, key,
+                                 &fndrrn, &fndgenid, NULL, NULL, 0,
+                                 trans);
+
+        if (rc == IX_FND) {
+            switch (on_conflict) {
+            case 5 /* Replace */: {
+                int failcode = 0;
+                /* Delete the record */
+                rc = del_record(iq, trans, NULL, 0, fndgenid,
+                                -1ULL /* FIX ME */, &failcode,
+                                ixfailnum, BLOCK2_DELKL, 0);
+            } break;
+            case 4 /* Ignore */:
+            case 1 /* Rollback */: /* fallthrough */
+            case 2 /* Abort */:    /* fallthrough */
+            case 3 /* Fail */:     /* fallthrough */
+            case 0 /* None */:     /* fallthrough */
+            default:
+                break;
+            }
+        }
+    }
+
+    /*
+     * Add the data record
+     */
+    if (!gbl_use_plan || !iq->usedb->plan || iq->usedb->plan->dta_plan == -1) {
+        if (flags & RECFLAGS_KEEP_GENID)
+            rc = dat_set(iq, trans, od_dta, od_len, *rrn, *genid);
+        else
+            rc = dat_add(iq, trans, od_dta, od_len, genid, rrn);
+
+        if (iq->debug) {
+            reqprintf(iq, "dat_add RRN %d GENID 0x%llx DTALEN %u RC %d DATA ",
+                      *rrn, *genid, od_len, rc);
+            reqdumphex(iq, od_dta, od_len);
+        }
+        if (rc != 0) {
+            *opfailcode = OP_FAILED_INTERNAL + ERR_ADD_RRN;
+            retrc = rc;
+            ERR;
+        }
+    }
+
+    /*
+     * Add all the blobs.  ctag_to_stag_blobs reordered the blob array
+     * as appropriate for ondisk tag.
+     */
+    for (blobno = 0; blobno < maxblobs; blobno++) {
+        blob_buffer_t *blob = &blobs[blobno];
+        if (blob->exists && (!gbl_use_plan || !iq->usedb->plan ||
+                             iq->usedb->plan->blob_plan[blobno] == -1)) {
+            rc = blob_add(iq, trans, blobno, blob->data, blob->length, *rrn,
+                          *genid);
+            if (iq->debug) {
+                reqprintf(iq, "blob_add LEN %u RC %d DATA ", blob->length, rc);
+                reqdumphex(iq, blob->data, blob->length);
+            }
+            if (rc != 0) {
+                retrc = rc;
+                *opfailcode = OP_FAILED_INTERNAL + ERR_ADD_BLOB;
+                ERR;
+            }
+        }
+    }
+
+    if (gbl_partial_indexes && iq->usedb->ix_partial && ins_keys == -1ULL) {
+        ins_keys = verify_indexes(iq->usedb, od_dta, blobs, maxblobs, 0);
+        if (ins_keys == -1ULL) {
+            fprintf(stderr, "%s: failed to verify_indexes\n", __func__);
+            *opfailcode = OP_FAILED_INTERNAL;
+            retrc = ERR_INTERNAL;
+            ERR;
+        }
+    }
+
+    /*
+     * Form and add all the keys.
+     * If there are constraints, do the add to indices defered.
+     */
+    if (!(flags & RECFLAGS_NO_CONSTRAINTS)) /* if NOT no constraints */
+    {
+        if (!(flags & RECFLAGS_NEW_SCHEMA)) {
+            /* enqueue the add of the key for constaint checking purposes */
+            rc = insert_add_op(iq, iq->blkstate, iq->usedb, NULL, NULL, opcode,
+                               *rrn, -1, *genid, ins_keys, blkpos);
+            if (rc != 0) {
+                if (iq->debug)
+                    reqprintf(iq, "FAILED TO PUSH KEYOP");
+                *opfailcode = OP_FAILED_INTERNAL;
+                retrc = ERR_INTERNAL;
+                ERR;
+            }
+        } else {
+            /* if rec adding to NEW SCHEMA and this has constraints,
+             * handle idx in live_sc_*
+             */
+        }
+    } else {
+        int ixnum;
+        od_dta_tail = NULL;
+        if (iq->osql_step_ix)
+            gbl_osqlpf_step[*(iq->osql_step_ix)].step += 1;
+        for (ixnum = 0; ixnum < iq->usedb->nix; ixnum++) {
+            int ixkeylen;
+            char ixtag[MAXTAGLEN];
+            char key[MAXKEYLEN];
+            char mangled_key[MAXKEYLEN];
+
+            if (gbl_use_plan && iq->usedb->plan &&
+                iq->usedb->plan->ix_plan[ixnum] != -1)
+                continue;
+
+            /* only add keys when told */
+            if (gbl_partial_indexes && iq->usedb->ix_partial &&
+                !(ins_keys & (1ULL << ixnum)))
+                continue;
+
+            ixkeylen = getkeysize(iq->usedb, ixnum);
+            if (ixkeylen < 0) {
+                if (iq->debug)
+                    reqprintf(iq, "BAD INDEX %d OR KEYLENGTH %d", ixnum,
+                              ixkeylen);
+                reqerrstrhdr(iq, "Table '%s' ", iq->usedb->dbname);
+                reqerrstr(iq, COMDB2_ADD_RC_INVL_KEY,
+                          "bad index %d or keylength %d", ixnum, ixkeylen);
+                *ixfailnum = ixnum;
+                *opfailcode = OP_FAILED_BAD_REQUEST;
+                retrc = ERR_BADREQ;
+                ERR;
+            }
+
+            snprintf(ixtag, sizeof(ixtag), "%s_IX_%d", ondisktag, ixnum);
+
+            if (iq->idxInsert)
+                rc = create_key_from_ireq(iq, ixnum, 0, &od_dta_tail,
+                                          &od_len_tail, mangled_key, od_dta,
+                                          od_len, key);
+            else
+                rc = create_key_from_ondisk_sch_blobs(
+                    iq->usedb, ondisktagsc, ixnum, &od_dta_tail, &od_len_tail,
+                    mangled_key, ondisktag, od_dta, od_len, ixtag, key, NULL,
+                    blobs, maxblobs, iq->tzname);
+            if (rc == -1) {
+                if (iq->debug)
+                    reqprintf(iq, "CAN'T FORM INDEX %d", ixnum);
+                reqerrstrhdr(iq, "Table '%s' ", iq->usedb->dbname);
+                reqerrstr(iq, COMDB2_ADD_RC_INVL_IDX, "cannot form index %d",
+                          ixnum);
+                *ixfailnum = ixnum;
+                *opfailcode = OP_FAILED_INTERNAL + ERR_FORM_KEY;
+                retrc = rc;
+                ERR;
+            }
+
+            /* light the prefault kill bit for this subop - newkeys */
+            prefault_kill_bits(iq, ixnum, PFRQ_NEWKEY);
+            if (iq->osql_step_ix)
+                gbl_osqlpf_step[*(iq->osql_step_ix)].step += 2;
+
+            /* add the key */
+            rc = ix_addk(iq, trans, key, ixnum, *genid, *rrn, od_dta_tail,
+                         od_len_tail);
+            if (iq->debug) {
+                reqprintf(iq, "ix_addk IX %d LEN %u KEY ", ixnum, ixkeylen);
+                reqdumphex(iq, key, ixkeylen);
+                reqmoref(iq, " RC %d", rc);
+            }
+
+            if (rc == RC_INTERNAL_RETRY) {
+                retrc = rc;
+                ERR;
+            } else if (rc != 0) {
+                retrc = rc;
+                *ixfailnum = ixnum;
+                /* If following changes, update OSQL_INSREC in osqlcomm.c */
+                *opfailcode = OP_FAILED_UNIQ; /* really? */
+
+                ERR;
+            }
+        }
+    }
+
+    /*
+     * Trigger stored procedures (JAVASP_TRANS_LISTEN_AFTER_ADD)
+     */
+    if (!(flags & RECFLAGS_NO_TRIGGERS) &&
+        javasp_trans_care_about(iq->jsph, JAVASP_TRANS_LISTEN_AFTER_ADD)) {
+        struct javasp_rec *jrec;
+        jrec = javasp_alloc_rec(od_dta, od_len, iq->usedb->dbname);
+        if (!jrec) {
+            *opfailcode = OP_FAILED_INTERNAL;
+            retrc = ERR_INTERNAL;
+            ERR;
+        }
+        javasp_rec_set_trans(jrec, iq->jsph, *rrn, *genid);
+        /* If we have blobs then make the blob information available
+         * to the Java record.  Any blobs not specified in the tag must
+         * be null, which is the default anyway. */
+        for (blobno = 0; blobno < maxblobs; blobno++) {
+            if (blobs[blobno].exists) {
+                blob_buffer_t *blob = &blobs[blobno];
+                javasp_rec_have_blob(jrec, blobno, blob->data, 0, blob->length);
+            }
+        }
+        rc =
+            javasp_trans_tagged_trigger(iq->jsph, JAVASP_TRANS_LISTEN_AFTER_ADD,
+                                        NULL, jrec, iq->usedb->dbname);
+        javasp_dealloc_rec(jrec);
+        if (iq->debug)
+            reqprintf(iq, "JAVASP_TRANS_LISTEN_AFTER_ADD RC %d", rc);
+        if (rc != 0) {
+            retrc = rc;
+            *opfailcode = ERR_JAVASP_ABORT_OP;
+            ERR;
+        }
+    }
+
+    /* Save the op to replay later locally */
+    if (gbl_replicate_local &&
+        (strcasecmp(iq->usedb->dbname, "comdb2_oplog") != 0 &&
+         (strcasecmp(iq->usedb->dbname, "comdb2_commit_log")) != 0 &&
+         strncasecmp(iq->usedb->dbname, "sqlite_stat", 11) != 0) &&
+        !(flags & RECFLAGS_NEW_SCHEMA)) {
+        retrc = local_replicant_log_add(iq, trans, od_dta, blobs, opfailcode);
+        if (retrc)
+            ERR;
+    }
+
+    if (!(flags & RECFLAGS_NEW_SCHEMA)) {
+        iq->usedb->write_count[RECORD_WRITE_INS]++;
+        gbl_sc_last_writer_time = time_epoch();
+
+        /* For live schema change */
+        rc = live_sc_post_add(iq, trans, *genid, od_dta, ins_keys, 
+                blobs, maxblobs, flags, rrn);
+
+        if (rc != 0) {
+            retrc = rc;
+            ERR;
+        }
+    }
+
+    dbglog_record_db_write(iq, "insert");
+    if (iq->__limits.maxcost && iq->cost > iq->__limits.maxcost)
+        retrc = ERR_LIMIT;
+
+    if (debug_switch_alternate_verify_fail()) {
+        static int flipon = 0;
+        if (flipon) {
+            flipon = 0;
+        } else {
+            flipon = 1;
+            *opfailcode = OP_FAILED_VERIFY;
+            retrc = ERR_VERIFY;
+            ERR;
+        }
+    }
+
+err:
+    if (iq->debug)
+        reqpopprefixes(iq, prefixes);
+    if (dynschema)
+        free_dynamic_schema(iq->usedb->dbname, dynschema);
+    if (using_myblobs)
+        free_blob_buffers(myblobs, MAXBLOBS);
+    if (iq->is_block2positionmode) {
+        iq->last_genid = *genid;
+    }
+    return retrc;
 }
 
 /*

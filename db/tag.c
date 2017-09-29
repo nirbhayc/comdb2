@@ -1561,6 +1561,8 @@ static int create_key_schema(struct dbtable *db, struct schema *schema, int alt)
         s->nmembers = dyns_get_idx_piece_count(ix);
         s->member = calloc(schema->ix[ix]->nmembers, sizeof(struct field));
 
+        s->on_conflict = dyns_get_idx_on_conflict(ix);
+
         s->flags = SCHEMA_INDEX;
 
         if (dyns_is_idx_dup(ix))
@@ -5237,6 +5239,7 @@ static int add_cmacc_stmt_int(struct dbtable *db, int alt, int side_effects)
     char tmptagname[MAXTAGLEN] = {0};
     char *rtag = NULL;
     int have_comdb2_seqno_field;
+    int on_conflict;
 
     /* save cmacc structures into db structs */
 
@@ -5447,6 +5450,11 @@ static int add_cmacc_stmt_int(struct dbtable *db, int alt, int side_effects)
                     schema->member[field].convopts.flags |= FLD_CONV_DBPAD;
                     schema->member[field].convopts.dbpad = padval;
                 }
+
+                rc = dyns_get_table_field_option(
+                    rtag, field, FLDOPT_ONCONFLICT, &type, &sz, &on_conflict, sizeof(int));
+                if (rc == 0)
+                    schema->member[field].on_conflict = on_conflict;
 
                 /* input default */
                 rc = init_default_value(&schema->member[field], field,

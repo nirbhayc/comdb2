@@ -1726,12 +1726,14 @@ osqlcomm_index_uuid_rpl_type_get(osql_index_uuid_rpl_t *p_osql_index_uuid_rpl,
 
 typedef struct osql_ins {
     unsigned long long seq;
-    unsigned long long dk; /* flag to indicate which keys to modify */
+    unsigned long long dk; /* Flag to indicate which keys to modify */
+    int flags;             /* On conflict flags */
+    int reserved;          /* Padding */
     int nData;
     char pData[4]; /* alignment! - pass some useful data instead of padding */
 } osql_ins_t;
 
-enum { OSQLCOMM_INS_TYPE_LEN = 8 + 8 + 4 + 4 };
+enum { OSQLCOMM_INS_TYPE_LEN = 8 + 8 + 4 + 4 + 4 + 4 };
 
 BB_COMPILE_TIME_ASSERT(osqlcomm_ins_type_len,
                        sizeof(osql_ins_t) == OSQLCOMM_INS_TYPE_LEN);
@@ -1751,6 +1753,10 @@ static uint8_t *osqlcomm_ins_type_put(const osql_ins_t *p_osql_ins,
     if (send_dk)
         p_buf = buf_no_net_put(&(p_osql_ins->dk), sizeof(p_osql_ins->dk), p_buf,
                                p_buf_end);
+    p_buf = buf_no_net_put(&(p_osql_ins->flags), sizeof(p_osql_ins->flags), p_buf,
+                           p_buf_end);
+    p_buf = buf_no_net_put(&(p_osql_ins->reserved), sizeof(p_osql_ins->reserved), p_buf,
+                           p_buf_end);
     p_buf = buf_put(&(p_osql_ins->nData), sizeof(p_osql_ins->nData), p_buf,
                     p_buf_end);
     /* leave p_buf pointing at pData */
@@ -1774,6 +1780,10 @@ static const uint8_t *osqlcomm_ins_type_get(osql_ins_t *p_osql_ins,
     if (recv_dk)
         p_buf = buf_no_net_get(&(p_osql_ins->dk), sizeof(p_osql_ins->dk), p_buf,
                                p_buf_end);
+    p_buf = buf_no_net_get(&(p_osql_ins->flags), sizeof(p_osql_ins->flags), p_buf,
+                           p_buf_end);
+    p_buf = buf_no_net_get(&(p_osql_ins->reserved), sizeof(p_osql_ins->reserved), p_buf,
+                           p_buf_end);
     p_buf = buf_get(&(p_osql_ins->nData), sizeof(p_osql_ins->nData), p_buf,
                     p_buf_end);
     /* leave p_buf pointing at pData */
@@ -2019,11 +2029,13 @@ typedef struct osql_upd {
     unsigned long long genid;
     unsigned long long ins_keys;
     unsigned long long del_keys;
+    int flags;  /* On conflict flags */
+    int unused; /* Padding */
     int nData;
     char pData[4]; /* alignment! - pass some useful data instead of padding */
 } osql_upd_t;
 
-enum { OSQLCOMM_UPD_TYPE_LEN = 8 + 8 + 8 + 4 + 4 };
+enum { OSQLCOMM_UPD_TYPE_LEN = 8 + 8 + 8 + 4 + 4 + 4 + 4 };
 
 BB_COMPILE_TIME_ASSERT(osqlcomm_upd_type_len,
                        sizeof(osql_upd_t) == OSQLCOMM_UPD_TYPE_LEN);
@@ -4073,7 +4085,8 @@ int osql_send_updstat(char *tohost, unsigned long long rqid, uuid_t uuid,
  */
 int osql_send_insrec(char *tohost, unsigned long long rqid, uuid_t uuid,
                      unsigned long long genid, unsigned long long dirty_keys,
-                     char *pData, int nData, int type, SBUF2 *logsb)
+                     char *pData, int nData, int type, SBUF2 *logsb,
+                     int on_conflict)
 {
     netinfo_type *netinfo_ptr = (netinfo_type *)comm->handle_sibling;
     int msglen;
@@ -4099,6 +4112,7 @@ int osql_send_insrec(char *tohost, unsigned long long rqid, uuid_t uuid,
         comdb2uuidcpy(ins_uuid_rpl.hd.uuid, uuid);
         ins_uuid_rpl.dt.seq = genid;
         ins_uuid_rpl.dt.dk = dirty_keys;
+        ins_uuid_rpl.dt.flags = on_conflict;
         ins_uuid_rpl.dt.nData = nData;
 
         if (send_dk)
@@ -4134,6 +4148,7 @@ int osql_send_insrec(char *tohost, unsigned long long rqid, uuid_t uuid,
         ins_rpl.hd.sid = rqid;
         ins_rpl.dt.seq = genid;
         ins_rpl.dt.dk = dirty_keys;
+        ins_rpl.dt.flags = on_conflict;
         ins_rpl.dt.nData = nData;
 
         if (send_dk)
@@ -6382,6 +6397,7 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
     if (gbl_toblock_net_throttle && is_write_request(type))
         net_throttle_wait(thedb->handle_sibling);
 
+    logmsg(LOGMSG_ERROR, "====> osql type : %d\n", type);
     switch (type) {
     case OSQL_DONE:
     case OSQL_DONE_SNAP:
@@ -6620,6 +6636,8 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
             sbuf2printf(logsb, "\n] -> ");
         }
 
+        logmsg(LOGMSG_ERROR, "======> on_conflict type : %d\n", dt.flags);
+
         addflags = RECFLAGS_DYNSCHEMA_NULLS_ONLY;
         if (osql_get_delayed(iq) == 0 && iq->usedb->n_constraints == 0 &&
             gbl_goslow == 0) {
@@ -6628,15 +6646,29 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
             osql_set_delayed(iq);
         }
 
-        rc = add_record(iq, trans, tag_name_ondisk,
-                        tag_name_ondisk + tag_name_ondisk_len, /*tag*/
-                        pData, pData + dt.nData,               /*dta*/
-                        NULL,            /*nulls, no need as no
-                                           ctag2stag is called */
-                        blobs, MAXBLOBS, /*blobs*/
-                        &err->errcode, &err->ixnum, &rrn, &genid, /*new id*/
-                        dt.dk, BLOCK2_ADDKL, step,
-                        addflags); /* do I need this?*/
+        if (dt.flags != 5 /* Replace */) {
+            rc = add_record(iq, trans, tag_name_ondisk,
+                            tag_name_ondisk + tag_name_ondisk_len, /*tag*/
+                            pData, pData + dt.nData,               /*dta*/
+                            NULL,            /*nulls, no need as no
+                                               ctag2stag is called */
+                            blobs, MAXBLOBS, /*blobs*/
+                            &err->errcode, &err->ixnum, &rrn, &genid, /*new id*/
+                            dt.dk, BLOCK2_ADDKL, step,
+                            addflags); /* do I need this?*/
+        } else {
+            rc = replace_record(iq, trans, tag_name_ondisk,
+                                tag_name_ondisk + tag_name_ondisk_len, /*tag*/
+                                pData, pData + dt.nData,               /*dta*/
+                                NULL,            /*nulls, no need as no
+                                                   ctag2stag is called */
+                                blobs, MAXBLOBS, /*blobs*/
+                                &err->errcode, &err->ixnum,
+                                &rrn, &genid, /*new id*/
+                                dt.dk, BLOCK2_ADDKL, step,
+                                addflags, dt.flags); /* do I need this?*/
+        }
+
         free_blob_buffers(blobs, MAXBLOBS);
         if (iq->idxInsert || iq->idxDelete) {
             free_cached_idx(iq->idxInsert);

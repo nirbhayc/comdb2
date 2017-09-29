@@ -796,11 +796,16 @@ void key_setprimary(void) { workkeyflag |= PRIMARY; }
 
 void key_setdatakey(void) { workkeyflag |= DATAKEY; }
 
+void key_set_onconflict(int opt) {
+    on_conflict = opt;
+}
+
 void key_piece_clear() /* used by parser, clears work key */
 {
     workkey = 0;          /* clear work key */
     workkeyflag = 0;      /* clear flag for work key */
     workkeypieceflag = 0; /* clear key piece's flags */
+    on_conflict = OE_NONE;
 }
 
 void key_piece_setdescend()
@@ -960,6 +965,8 @@ static void key_add_comn(int ix, char *tag, char *exprname,
     keyixnum[ii] = ix;         /* remember ix number associated with key */
     keyexprnum[ii] = exprnum;  /* remember expr assoc with key */
     ixflags[ix] = workkeyflag; /* remember flags */
+    ix_on_conflict[ix] = on_conflict; /* remember on conflict option */
+
     if (tag != NULL) {
         int idxfnd = 0, jj = 0;
         strupper(tag);
@@ -1802,8 +1809,7 @@ void add_fldopt(int opttype, int valtype, void *value)
         reset_fldopt();
         return;
     }
-    if (opttype != FLDOPT_DBSTORE && opttype != FLDOPT_DBLOAD &&
-        opttype != FLDOPT_NULL && opttype != FLDOPT_PADDING) {
+    if (opttype < FLDOPT_DBSTORE || opttype >= FLDOPT_MAX) {
         csc2_error("FIELD OPTION ERROR: INVALID OPTION TYPE %d\n", opttype);
         any_errors++;
         reset_fldopt();
@@ -2802,6 +2808,10 @@ int dyns_get_idx_piece_count(int index)
     }
 
     return 0;
+}
+
+int dyns_get_idx_on_conflict(int index) {
+    return ix_on_conflict[index];
 }
 
 /* database number of this schema */

@@ -9,6 +9,7 @@ enum fieldopttypes {
     FLDOPT_DBLOAD = 1,
     FLDOPT_NULL = 2,
     FLDOPT_PADDING = 3,
+    FLDOPT_ONCONFLICT = 4,
     FLDOPT_MAX
 };
 
@@ -44,6 +45,7 @@ int dyns_get_idx_size(int index);
 int dyns_get_idx_piece(int index, int piece, char *sname, int slen, int *type,
                        int *offset, int *plen, int *descend, char **pexpr);
 int dyns_get_idx_piece_count(int index);
+int dyns_get_idx_on_conflict(int index);
 int dyns_get_db_num(void);
 int dyns_get_dtadir(char *dir, int len);
 int dyns_get_db_name(char *name, int len);

@@ -80,6 +80,15 @@ extern char *maccfuncpath;
 #define EXPRMAX 1024    /* maximum pieces of an expression */
 #define EXPRTABMAX 1024 /* maximum number of expressions */
 
+typedef enum on_conflict {
+    OE_NONE = 0,
+    OE_ROLLBACK,
+    OE_ABORT,
+    OE_FAIL,
+    OE_IGNORE,
+    OE_REPLACE,
+} on_conflict_t;
+
 extern struct constant {
     int value;
     short type;
@@ -199,6 +208,7 @@ extern struct key {
     int exprtype;
     int exprarraysz;
     char *where;
+    on_conflict_t on_conflict;
 } * keys[MAXKEYS], *workkey, *rngs[MAXRNGS];
 
 enum KEYFLAGS {
@@ -212,6 +222,9 @@ extern int keyexprnum[MAXKEYS]; /* case number associated with a key */
 
 extern int ixsize[MAXINDEX];  /* index size in comdbg */
 extern int ixflags[MAXINDEX]; /* flags for index */
+
+extern int on_conflict;
+extern int ix_on_conflict[MAXINDEX];
 
 enum INDEXFLAGS {
     DUPKEY = 0x00000001,  /* duplicate key flag */
@@ -310,6 +323,7 @@ void key_setdup();
 void key_setrecnums(void);
 void key_setprimary(void);
 void key_setdatakey(void);
+void key_set_onconflict(int opt);
 void reset_key_exprtype(void);
 void key_exprtype_add(int type, int arraysz);
 void key_piece_add(char *buf, int is_expr);

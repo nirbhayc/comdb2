@@ -1405,6 +1405,7 @@ struct sqlite3 {
   /* COMDB2 MODIFICATION */
   u8 should_fingerprint;
   char fingerprint[16];              /* Figerprint of the last query that was prepared */
+  int on_conflict;
 };
 
 /*

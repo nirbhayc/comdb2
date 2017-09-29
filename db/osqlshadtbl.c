@@ -1856,7 +1856,7 @@ static int process_local_shadtbl_add(struct sqlclntstate *clnt, shad_tbl_t *tbl,
                                   (gbl_partial_indexes && tbl->db->ix_partial)
                                       ? get_ins_keys(clnt, tbl, *seq)
                                       : -1ULL,
-                                  data, ldata, osql_nettype, osql->logsb);
+                                  data, ldata, osql_nettype, osql->logsb, 0);
 
             if (rc) {
                 logmsg(LOGMSG_USER, 

@@ -48,8 +48,8 @@ struct field {
     void *out_default;
     int out_default_len;
     struct field_conv_opts convopts;
-
     int blob_index; /* index of this blob, -1 for non blobs */
+    int on_conflict;
 };
 
 /* A schema for a tag or index.  The schema for the .ONDISK tag will have
@@ -71,6 +71,7 @@ struct schema {
     char *sqlitetag;
     int *datacopy;
     char *where;
+    uint8_t on_conflict;
     LINKC_T(struct schema) lnk;
 };
 

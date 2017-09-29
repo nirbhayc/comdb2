@@ -1,18 +1,18 @@
 %{
 
 /*
-   Copyright 2015 Bloomberg Finance L.P.
-  
+   Copyright 2015, 2017 Bloomberg Finance L.P.
+
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
    You may obtain a copy of the License at
-   
+
        http://www.apache.org/licenses/LICENSE-2.0
-   
+
    Unless required by applicable law or agreed to in writing, software
    distributed under the License is distributed on an "AS IS" BASIS,
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and 
+   See the License for the specific language governing permissions and
    limitations under the License.
  */
 
@@ -312,6 +312,13 @@ sqlhexstr x{space}*"'"{space}*([a-fA-F0-9])*{space}*"'"
 <RECTYPE>.                      { BEGIN 0; unput( yytext[0] ); }
 <INITIAL>.			{ return yytext[0]; }
 <CONSTRAINTS>.                  { BEGIN 0; unput( yytext[0] ); }
+
+<INITIAL,RECTYPE>onconflict     { return T_ONCONFLICT; }
+<INITIAL,RECTYPE>rollback       { return T_ROLLBACK; }
+<INITIAL,RECTYPE>abort          { return T_ABORT; }
+<INITIAL,RECTYPE>fail           { return T_FAIL; }
+<INITIAL,RECTYPE>ignore         { return T_IGNORE; }
+<INITIAL,RECTYPE>replace        { return T_REPLACE; }
 
 %%
 void yyerror(const char *msg)

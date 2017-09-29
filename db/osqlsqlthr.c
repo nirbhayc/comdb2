@@ -68,7 +68,8 @@ static int osql_send_delrec_logic(struct BtCursor *pCur, struct sql_thread *thd,
 static int osql_send_delidx_logic(struct BtCursor *pCur, struct sql_thread *thd,
                                   int nettype);
 static int osql_send_insrec_logic(struct BtCursor *pCur, struct sql_thread *thd,
-                                  char *pData, int nData, int nettype);
+                                  char *pData, int nData, int nettype,
+                                  int on_conflict);
 static int osql_send_insidx_logic(struct BtCursor *pCur, struct sql_thread *thd,
                                   int nettype);
 static int osql_send_updrec_logic(struct BtCursor *pCur, struct sql_thread *thd,
@@ -220,7 +221,7 @@ int osql_insidx(struct BtCursor *pCur, struct sql_thread *thd, int is_update)
  *
  */
 int osql_insrec(struct BtCursor *pCur, struct sql_thread *thd, char *pData,
-                int nData, blob_buffer_t *blobs, int maxblobs)
+                int nData, blob_buffer_t *blobs, int maxblobs, int on_conflict)
 {
     int rc = 0;
 
@@ -244,7 +245,7 @@ int osql_insrec(struct BtCursor *pCur, struct sql_thread *thd, char *pData,
         }
 
         return osql_send_insrec_logic(pCur, thd, pData, nData,
-                                      NET_OSQL_SOCK_RPL);
+                                      NET_OSQL_SOCK_RPL, on_conflict);
     } else
         return osql_save_insrec(pCur, thd, pData, nData);
 }
@@ -1122,7 +1123,8 @@ static int osql_send_delidx_logic(struct BtCursor *pCur, struct sql_thread *thd,
 }
 
 static int osql_send_insrec_logic(struct BtCursor *pCur, struct sql_thread *thd,
-                                  char *pData, int nData, int nettype)
+                                  char *pData, int nData, int nettype,
+                                  int on_conflict)
 {
 
     struct sqlclntstate *clnt = thd->sqlclntstate;
@@ -1140,7 +1142,7 @@ static int osql_send_insrec_logic(struct BtCursor *pCur, struct sql_thread *thd,
                               (gbl_partial_indexes && pCur->db->ix_partial)
                                   ? clnt->ins_keys
                                   : -1ULL,
-                              pData, nData, nettype, osql->logsb);
+                              pData, nData, nettype, osql->logsb, on_conflict);
         RESTART_SOCKSQL;
     }
 

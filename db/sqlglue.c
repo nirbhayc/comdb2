@@ -8021,7 +8021,7 @@ int sqlite3BtreeBeginStmt(Btree *pBt, int iStatement)
 int sqlite3BtreeInsert(
     BtCursor *pCur, /* Insert data into the table of this cursor */
     const BtreePayload *pPayload, /* The key and data of the new record */
-    int bias, int seekResult)
+    int bias, int seekResult, int on_conflict)
 {
     const void *pKey = pPayload->pKey;
     sqlite3_int64 nKey = pPayload->nKey;
@@ -8272,7 +8272,8 @@ int sqlite3BtreeInsert(
                 clnt->log_effects.num_updated++;
             } else {
                 rc = osql_insrec(pCur, thd, pCur->ondisk_buf,
-                                 getdatsize(pCur->db), blobs, MAXBLOBS);
+                                 getdatsize(pCur->db), blobs, MAXBLOBS,
+                                 on_conflict);
                 clnt->effects.num_inserted++;
                 clnt->log_effects.num_inserted++;
             }

@@ -53,7 +53,7 @@ int osql_delrec(struct BtCursor *pCur, struct sql_thread *thd);
  *
  */
 int osql_insrec(struct BtCursor *pCur, struct sql_thread *thd, char *pData,
-                int nData, blob_buffer_t *blobs, int maxblobs);
+                int nData, blob_buffer_t *blobs, int maxblobs, int on_conflict);
 
 /**
  * Process a sqlite insert row request

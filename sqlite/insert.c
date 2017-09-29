@@ -546,6 +546,9 @@ void sqlite3Insert(
     goto insert_cleanup;
   }
 
+  /* Save the on conflict action. */
+  db->on_conflict = onError;
+
   /* If the Select object is really just a simple VALUES() list with a
   ** single row (the common case) then keep that one row of values
   ** and discard the other (unused) parts of the pSelect object

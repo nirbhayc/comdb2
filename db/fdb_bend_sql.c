@@ -812,7 +812,7 @@ int fdb_svc_cursor_insert(struct sqlclntstate *clnt, int rootpage, int version,
 
     fdb_sequence_request(clnt, clnt->dbtran.dtran->fdb_trans.top, seq);
 
-    rc = osql_insrec(&bCur, thd, row, rowlen, rowblobs, MAXBLOBS);
+    rc = osql_insrec(&bCur, thd, row, rowlen, rowblobs, MAXBLOBS, 0);
 
     pthread_mutex_unlock(&clnt->dtran_mtx);
 

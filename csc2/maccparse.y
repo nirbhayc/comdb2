@@ -60,9 +60,17 @@
 %token T_RECNUMS T_PRIMARY T_DATAKEY 
 %token T_YES T_NO
 
-%token T_ASCEND T_DESCEND T_DUP					/*MODIFIERS*/
+%token T_ASCEND T_DESCEND T_DUP	/*MODIFIERS*/
 
 %token T_LT T_GT 
+
+%token T_ONCONFLICT
+%token T_ROLLBACK
+%token T_ABORT
+%token T_FAIL
+%token T_IGNORE
+%token T_REPLACE
+%type <number> onconflictopts
 
 %type <number> validctype validstrtype valididxstrtype
 %type <numstr>      number
@@ -179,13 +187,21 @@ fieldopts: T_FLD_STRDEFAULT '=' number fieldopts          { add_fldopt(FLDOPT_DB
            | T_FLD_LDDEFAULT '=' fltnumber fieldopts      { double f=$3; add_fldopt(FLDOPT_DBLOAD,CLIENT_REAL,&f); }
            | T_FLD_STRDEFAULT '=' string  fieldopts       { add_fldopt(FLDOPT_DBSTORE,CLIENT_CSTR,$3); }
            | T_FLD_LDDEFAULT '=' string fieldopts         { add_fldopt(FLDOPT_DBLOAD,CLIENT_CSTR,$3); }
-           | T_FLD_STRDEFAULT '=' sqlhexstr  fieldopts       { add_fldopt(FLDOPT_DBSTORE,CLIENT_BYTEARRAY,$3); }
-           | T_FLD_LDDEFAULT '=' sqlhexstr fieldopts         { add_fldopt(FLDOPT_DBLOAD,CLIENT_BYTEARRAY,$3); }
+           | T_FLD_STRDEFAULT '=' sqlhexstr  fieldopts    { add_fldopt(FLDOPT_DBSTORE,CLIENT_BYTEARRAY,$3); }
+           | T_FLD_LDDEFAULT '=' sqlhexstr fieldopts      { add_fldopt(FLDOPT_DBLOAD,CLIENT_BYTEARRAY,$3); }
            | T_FLD_NULL '=' yesno fieldopts               { int f=$3; add_fldopt(FLDOPT_NULL,CLIENT_INT,&f); }
            | T_FLD_PADDING '=' number fieldopts           { int f=$3.number; add_fldopt(FLDOPT_PADDING,CLIENT_INT,&f); }
+           | T_ONCONFLICT '=' onconflictopts fieldopts    { int f=$3; add_fldopt(FLDOPT_ONCONFLICT,CLIENT_INT,&f); }
            | /* %empty */
            ;
 	 
+onconflictopts: T_ROLLBACK { $$=OE_ROLLBACK; }
+           | T_ABORT       { $$=OE_ABORT; }
+           | T_FAIL        { $$=OE_FAIL; }
+           | T_IGNORE      { $$=OE_IGNORE; }
+           | T_REPLACE     { $$=OE_REPLACE; }
+           ;
+
 /* recstruct: defines a record
 **		ie.
 **		record {
@@ -415,6 +431,8 @@ keyflags:	T_DUP		{ key_setdup(); }
                 | T_RECNUMS     { key_setrecnums(); }
                 | T_PRIMARY     { key_setprimary(); }
                 | T_DATAKEY     { key_setdatakey(); }
+                | T_ONCONFLICT '=' onconflictopts
+                                { key_set_onconflict($3); }
 		;
 
 compoundkey:	keypiece
