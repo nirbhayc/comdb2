@@ -646,13 +646,36 @@ int add_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
                           blkpos, flags);
 }
 
+struct Mem;
+int get_data_from_ondisk(struct schema *sc, uint8_t *in, blob_buffer_t *blobs,
+                         size_t maxblobs, int fnum, Mem *m, uint8_t flip_orig,
+                         const char *tzname);
+int run_verify_indexes_query(char *sql, struct schema *sc, Mem *min,
+                             Mem *mout, int *exist);
+
+
+struct mem_info {
+    struct schema *s;
+    Mem *m;
+    int null;
+    int *nblobs;
+    struct field_conv_opts_tz *convopts;
+    const char *tzname;
+    blob_buffer_t *outblob;
+    int maxblobs;
+    struct convert_failure *fail_reason;
+    int fldidx;
+};
+
+int mem_to_ondisk(void *outbuf, struct field *f, struct mem_info *info, bias_info *bias_info);
+
 int replace_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
                    const uint8_t *p_buf_tag_name_end, uint8_t *p_buf_rec,
                    const uint8_t *p_buf_rec_end, const unsigned char fldnullmap[32],
                    blob_buffer_t *blobs, size_t maxblobs, int *opfailcode,
                    int *ixfailnum, int *rrn, unsigned long long *genid,
                    unsigned long long ins_keys, int opcode, int blkpos, int flags,
-                   int on_conflict)
+                   on_conflict_t *oc)
 {
     char tag[MAXTAGLEN + 1];
     int is_od_tag;
@@ -994,7 +1017,155 @@ int replace_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
                                  trans);
 
         if (rc == IX_FND) {
-            switch (on_conflict) {
+            switch (oc->flag) {
+            case 20 /* Upsert */:
+                {
+                    /*
+                      Steps:
+                      1. Retreive the conflicting record R' & table columns C'.
+
+                      rc = ix_find_by_key_tran(iq, key, ixkeylen, ixnum, key,
+                                               &fndrrn, &fndgenid, NULL, NULL, 0,
+                                               trans);
+                      OR
+
+                      rc = ix_find_by_primkey_tran(iq, primkey, primkeysz, fndkey, &fndrrn,
+                                                   &vgenid, old_dta, &fndlen, od_len, trans);
+
+                      2. Form a CTE on C' & R' to perform SELECT using the given
+                      set list and WHERE predicate.
+                      3. Execute the CTE.
+                          3.1. No result set == NO ACTION
+                          3.2. 1 row == UPDATE the record with the matching genid.
+                    */
+                    void *old_record;
+                    int fndlen;
+                    int rc;
+                    int i;
+
+                    old_record = alloca(reclen);
+                    rc = ix_find_by_rrn_and_genid_tran(iq, fndrrn, fndgenid, old_record,
+                                                       &fndlen, reclen, trans);
+                    if (rc) {
+                        // TODO: handle error
+                    }
+
+                    Mem *m = NULL;
+                    Mem mout = {0};
+
+                    m = (Mem *)malloc(sizeof(Mem) * MAXCOLUMNS);
+
+                    for (i = 0; i < dbname_schema->nmembers; ++i) {
+                        memset(&m[i], 0, sizeof(Mem));
+                        rc = get_data_from_ondisk(dbname_schema, old_record,
+                                                  blobs, maxblobs, i, &m[i],
+                                                  0, "America/New_York");
+                        if (rc) {
+                            // TODO: handle error
+                        }
+                    }
+
+                    strbuf *sql;
+                    sql = strbuf_new();
+
+                    /* WITH "temp" (i, j) AS (SELECT 1, 1) SELECT i, j FROM temp; */
+
+                    strbuf_append(sql, "WITH ");
+                    strbuf_append(sql, "\"");
+                    strbuf_append(sql, "temp");
+                    strbuf_append(sql, "\"");
+                    strbuf_append(sql, "(");
+                    strbuf_append(sql, dbname_schema->member[0].name);
+                    for (i = 1; i < dbname_schema->nmembers; ++i) {
+                        strbuf_appendf(sql, ", %s", dbname_schema->member[i]);
+                    }
+                    strbuf_appendf(sql, ") AS (SELECT @%s", dbname_schema->member[0].name);
+                    for (i = 1; i < dbname_schema->nmembers; ++i) {
+                        strbuf_appendf(sql, ", @%s", dbname_schema->member[i]);
+                    }
+                    strbuf_append(sql, ") SELECT ");
+
+                    char *ptr = oc->exprlist;
+                    strbuf_appendf(sql, "%s", ptr);
+                    ptr += (strlen(oc->exprlist) + 1);
+                    for (i = 1; i < oc->nExpr; i ++) {
+                        strbuf_appendf(sql, ",%s ", ptr);
+                        ptr += (strlen(oc->exprlist) + 1);
+                    }
+
+                    /* Insert select clause here. */
+                    strbuf_append(sql, " FROM temp ");
+                    if (oc->where) {
+                        strbuf_appendf(sql, " WHERE %s", oc->where);
+                    }
+
+                    int exist;
+                    rc = run_verify_indexes_query((char *)strbuf_buf(sql),
+                                                  dbname_schema, m,
+                                                  &mout /* must be single record */,
+                                                  &exist);
+
+                    if (exist) {
+                        void *new_record;
+                        int nblobs;
+                        struct field_conv_opts_tz convopts = {.flags = 0};
+
+                        new_record = alloca(reclen);
+
+                        struct mem_info info;
+                        info.s = dbname_schema;
+                        info.null = 0;
+                        info.fail_reason = 0;
+                        info.tzname = "America/New_York";
+                        info.m = &mout;
+                        info.nblobs = &nblobs;
+                        info.convopts = &convopts;
+                        info.outblob = NULL;
+                        info.maxblobs = maxblobs;
+                        info.fldidx = -1;
+
+                        /* Convert row from sqlite to comdb2 format. */
+                        rc = mem_to_ondisk(new_record, &dbname_schema->member[0], &info, NULL);
+#if 0
+                        rc = sqlite_to_ondisk(dbname_schema, NULL, 0, new_record,
+                                              "America/New_York", blobs, MAXBLOBS,
+                                              NULL, NULL);
+#endif
+
+                        if (rc) {
+                            // TODO: Check for failure.
+                        }
+
+                        static const char ondisktag[] = ".ONDISK";
+                        uint8_t *p_tagname_buf = (uint8_t *)ondisktag;
+                        uint8_t *p_tagname_buf_end = p_tagname_buf + strlen(ondisktag);
+
+                        int ixfailnum;
+                        int opfailcode;
+
+                        rc = upd_record(iq, trans, NULL, fndrrn, fndgenid,
+                                        p_tagname_buf, p_tagname_buf_end,
+                                        new_record, new_record + reclen, /* rec */
+                                        NULL, NULL, /* vrec */
+                                        NULL, /* nulls */
+                                        NULL, /* updcols */
+                                        NULL, /* blobs */
+                                        0, /* maxblobs */
+                                        &fndgenid, -1ULL, -1ULL,
+                                        &opfailcode, /* opfailcode */
+                                        &ixfailnum, /* ixfailnum */
+                                        0, /* opcode */
+                                        0, /* blkpos */
+                                        0 /* flags */
+                                       );
+
+                        if (rc) {
+                            // TODO: Check for failure.
+                        }
+                        goto err;
+                    }
+                    break;
+                }
             case 5 /* Replace */: {
                 int failcode = 0;
                 /* Delete the record */

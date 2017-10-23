@@ -500,7 +500,8 @@ void sqlite3Insert(
   SrcList *pTabList,    /* Name of table into which we are inserting */
   Select *pSelect,      /* A SELECT statement to use as the data source */
   IdList *pColumn,      /* Column names corresponding to IDLIST. */
-  int onError           /* How to handle constraint errors */
+  Cdb2OnConflict *oc
+                        /* How to handle constraint errors */
 ){
   sqlite3 *db;          /* The main database structure */
   Table *pTab;          /* The table to insert into.  aka TABLE */
@@ -540,14 +541,15 @@ void sqlite3Insert(
   int tmask;                  /* Mask of trigger times */
 #endif
 
+  int onError;
+
+  onError = (oc) ? oc->flag : OE_Default;
+
   db = pParse->db;
   memset(&dest, 0, sizeof(dest));
   if( pParse->nErr || db->mallocFailed ){
     goto insert_cleanup;
   }
-
-  /* Save the on conflict action. */
-  db->on_conflict = onError;
 
   /* If the Select object is really just a simple VALUES() list with a
   ** single row (the common case) then keep that one row of values
@@ -613,6 +615,13 @@ void sqlite3Insert(
   if( v==0 ) goto insert_cleanup;
   if( pParse->nested==0 ) sqlite3VdbeCountChanges(v);
   sqlite3BeginWriteOperation(pParse, pSelect || pTrigger, iDb);
+
+  /* Save the on conflict action. */
+  if (oc && !(db->onConflict = parseOnConflict(v, oc))) {
+      sqlite3ErrorMsg(pParse, "'Row value' is currently not supported in "
+                      "UPSERT");
+      goto insert_cleanup;
+  }
 
 #ifndef SQLITE_OMIT_XFER_OPT
   /* If the statement is of the form

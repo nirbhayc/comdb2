@@ -87,7 +87,7 @@ typedef enum on_conflict {
     OE_FAIL,
     OE_IGNORE,
     OE_REPLACE,
-} on_conflict_t;
+} on_conflict_enum;
 
 extern struct constant {
     int value;
@@ -208,7 +208,7 @@ extern struct key {
     int exprtype;
     int exprarraysz;
     char *where;
-    on_conflict_t on_conflict;
+    on_conflict_enum on_conflict;
 } * keys[MAXKEYS], *workkey, *rngs[MAXRNGS];
 
 enum KEYFLAGS {

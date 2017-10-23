@@ -30,3 +30,5 @@ SELECT * FROM t2;
 
 DROP TABLE t1;
 DROP TABLE t2;
+
+exec procedure sys.cmd.send('verify t1');

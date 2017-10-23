@@ -1820,23 +1820,6 @@ static uint8_t *osqlcomm_ins_rpl_type_put(const osql_ins_rpl_t *p_osql_ins_rpl,
     return p_buf;
 }
 
-static const uint8_t *osqlcomm_ins_rpl_type_get(osql_ins_rpl_t *p_osql_ins_rpl,
-                                                const uint8_t *p_buf,
-                                                const uint8_t *p_buf_end,
-                                                int recv_dk)
-{
-    if (p_buf_end < p_buf ||
-        (recv_dk ? OSQLCOMM_INS_RPL_TYPE_LEN
-                 : OSQLCOMM_INS_RPL_TYPE_LEN - sizeof(unsigned long long)) >
-            (p_buf_end - p_buf))
-        return NULL;
-
-    p_buf = osqlcomm_rpl_type_get(&(p_osql_ins_rpl->hd), p_buf, p_buf_end);
-    p_buf =
-        osqlcomm_ins_type_get(&(p_osql_ins_rpl->dt), p_buf, p_buf_end, recv_dk);
-
-    return p_buf;
-}
 typedef struct osql_ins_uuid_rpl {
     osql_uuid_rpl_t hd;
     osql_ins_t dt;
@@ -1866,25 +1849,6 @@ osqlcomm_ins_uuid_rpl_type_put(const osql_ins_uuid_rpl_t *p_osql_ins_uuid_rpl,
                                        p_buf_end);
     p_buf = osqlcomm_ins_type_put(&(p_osql_ins_uuid_rpl->dt), p_buf, p_buf_end,
                                   send_dk);
-
-    return p_buf;
-}
-
-static const uint8_t *
-osqlcomm_ins_uuid_rpl_type_get(osql_ins_uuid_rpl_t *p_osql_ins_uuid_rpl,
-                               const uint8_t *p_buf, const uint8_t *p_buf_end,
-                               int recv_dk)
-{
-    if (p_buf_end < p_buf ||
-        (recv_dk ? OSQLCOMM_INS_UUID_RPL_TYPE_LEN
-                 : OSQLCOMM_INS_UUID_RPL_TYPE_LEN -
-                       sizeof(unsigned long long)) > (p_buf_end - p_buf))
-        return NULL;
-
-    p_buf = osqlcomm_uuid_rpl_type_get(&(p_osql_ins_uuid_rpl->hd), p_buf,
-                                       p_buf_end);
-    p_buf = osqlcomm_ins_type_get(&(p_osql_ins_uuid_rpl->dt), p_buf, p_buf_end,
-                                  recv_dk);
 
     return p_buf;
 }
@@ -4086,21 +4050,21 @@ int osql_send_updstat(char *tohost, unsigned long long rqid, uuid_t uuid,
 int osql_send_insrec(char *tohost, unsigned long long rqid, uuid_t uuid,
                      unsigned long long genid, unsigned long long dirty_keys,
                      char *pData, int nData, int type, SBUF2 *logsb,
-                     int on_conflict)
+                     on_conflict_t *oc)
 {
     netinfo_type *netinfo_ptr = (netinfo_type *)comm->handle_sibling;
-    int msglen;
-    uint8_t buf[OSQLCOMM_INS_RPL_TYPE_LEN > OSQLCOMM_INS_UUID_RPL_TYPE_LEN
-                    ? OSQLCOMM_INS_RPL_TYPE_LEN
-                    : OSQLCOMM_INS_UUID_RPL_TYPE_LEN];
-    int rc = 0;
-    int sent;
-    uint8_t *p_buf = buf;
+    uint8_t *buf;
+    uint8_t *p_buf;
     uint8_t *p_buf_end = NULL;
-    int send_dk = 0;
+    size_t buf_size;
+    int rc;
+    int send_dk;
 
-    if (gbl_partial_indexes && dirty_keys != -1ULL)
+    if (gbl_partial_indexes && dirty_keys != -1ULL) {
         send_dk = 1;
+    } else {
+        send_dk = 0;
+    }
 
     if (check_master(tohost))
         return OSQL_SEND_ERROR_WRONGMASTER;
@@ -4112,34 +4076,38 @@ int osql_send_insrec(char *tohost, unsigned long long rqid, uuid_t uuid,
         comdb2uuidcpy(ins_uuid_rpl.hd.uuid, uuid);
         ins_uuid_rpl.dt.seq = genid;
         ins_uuid_rpl.dt.dk = dirty_keys;
-        ins_uuid_rpl.dt.flags = on_conflict;
+        ins_uuid_rpl.dt.flags = (oc) ? oc->flag : 0;
         ins_uuid_rpl.dt.nData = nData;
 
-        if (send_dk)
-            p_buf_end = p_buf + OSQLCOMM_INS_UUID_RPL_TYPE_LEN;
-        else
-            p_buf_end =
-                p_buf + OSQLCOMM_INS_UUID_RPL_TYPE_LEN - sizeof(dirty_keys);
+        buf_size = OSQLCOMM_INS_UUID_RPL_TYPE_LEN + nData -
+                   sizeof(ins_uuid_rpl.dt.pData);
+
+        if (send_dk == 0)
+            buf_size -= sizeof(dirty_keys);
+
+        /*
+          UPSERT data is stored right after the record data.
+        */
+        if (oc && (oc->flag == 20)) {
+            buf_size += (sizeof(int) * 2) + (sizeof(size_t) * 3) +
+                oc->collist_len + oc->exprlist_len + oc->where_len;
+        }
+
+        buf = alloca(buf_size);
+        p_buf = buf;
+        p_buf_end = p_buf + buf_size;
 
         if (!(p_buf = osqlcomm_ins_uuid_rpl_type_put(&ins_uuid_rpl, p_buf,
                                                      p_buf_end, send_dk))) {
             logmsg(LOGMSG_ERROR, "%s:%s returns NULL\n", __func__,
-                    "osqlcomm_ins_rpl_type_put");
+                   "osqlcomm_ins_uuid_rpl_type_put");
             return -1;
         }
-        if (send_dk)
-            msglen = sizeof(ins_uuid_rpl);
-        else
-            msglen = sizeof(ins_uuid_rpl) - sizeof(dirty_keys);
-        sent = sizeof(ins_uuid_rpl.dt.pData);
 
         /*
-         * p_buf is pointing at the beginning of the pData section of ins_rpl.
-         * Zero
-         * this for the case where the length is less than 8.
-         */
-        memset(p_buf, 0, sizeof(ins_uuid_rpl.dt.pData));
-        /* override message type */
+          p_buf is pointing at the beginning of the pData section of ins_rpl.
+        */
+
         type = osql_net_type_to_net_uuid_type(NET_OSQL_SOCK_RPL);
     } else {
         osql_ins_rpl_t ins_rpl = {0};
@@ -4148,31 +4116,54 @@ int osql_send_insrec(char *tohost, unsigned long long rqid, uuid_t uuid,
         ins_rpl.hd.sid = rqid;
         ins_rpl.dt.seq = genid;
         ins_rpl.dt.dk = dirty_keys;
-        ins_rpl.dt.flags = on_conflict;
+        ins_rpl.dt.flags = (oc) ? oc->flag : 0;
         ins_rpl.dt.nData = nData;
 
-        if (send_dk)
-            p_buf_end = p_buf + OSQLCOMM_INS_RPL_TYPE_LEN;
-        else
-            p_buf_end = p_buf + OSQLCOMM_INS_RPL_TYPE_LEN - sizeof(dirty_keys);
+        buf_size =
+            OSQLCOMM_INS_RPL_TYPE_LEN + nData - sizeof(ins_rpl.dt.pData);
+
+        if (send_dk == 0)
+            buf_size -= sizeof(dirty_keys);
+
+        /*
+          UPSERT data is stored right after the record data.
+        */
+        if (oc && (oc->flag == 20)) {
+            buf_size += (sizeof(int) * 2) + (sizeof(size_t) * 3) +
+                oc->collist_len + oc->exprlist_len + oc->where_len;
+        }
+
+        buf = alloca(buf_size);
+        p_buf = buf;
+        p_buf_end = p_buf + buf_size;
 
         if (!(p_buf = osqlcomm_ins_rpl_type_put(&ins_rpl, p_buf, p_buf_end,
                                                 send_dk))) {
             logmsg(LOGMSG_ERROR, "%s:%s returns NULL\n", __func__,
-                    "osqlcomm_ins_rpl_type_put");
+                   "osqlcomm_ins_rpl_type_put");
             return -1;
         }
-        if (send_dk)
-            msglen = sizeof(ins_rpl);
-        else
-            msglen = sizeof(ins_rpl) - sizeof(dirty_keys);
-        sent = sizeof(ins_rpl.dt.pData);
-        memset(p_buf, 0, sizeof(ins_rpl.dt.pData));
     }
 
-    if (nData > 0) {
-        p_buf = buf_no_net_put(pData, nData < sent ? nData : sent, p_buf,
+    /* Write the record data */
+    assert(nData > 0);
+    p_buf = buf_no_net_put(pData, nData, p_buf, p_buf_end);
+
+    /* Write UPSERT data. */
+    if (oc && (oc->flag == 20)) {
+        p_buf = buf_no_net_put(&(oc->nCols), sizeof(oc->nCols), p_buf,
                                p_buf_end);
+        p_buf = buf_no_net_put(&(oc->nExpr), sizeof(oc->nExpr), p_buf,
+                               p_buf_end);
+        p_buf = buf_no_net_put(&(oc->collist_len), sizeof(oc->collist_len),
+                               p_buf, p_buf_end);
+        p_buf = buf_no_net_put(&(oc->exprlist_len), sizeof(oc->exprlist_len),
+                               p_buf, p_buf_end);
+        p_buf = buf_no_net_put(&(oc->where_len), sizeof(oc->where_len), p_buf,
+                               p_buf_end);
+        p_buf = buf_no_net_put(oc->collist, oc->collist_len, p_buf, p_buf_end);
+        p_buf = buf_no_net_put(oc->exprlist, oc->exprlist_len, p_buf, p_buf_end);
+        p_buf = buf_no_net_put(oc->where, oc->where_len, p_buf, p_buf_end);
     }
 
     if (logsb) {
@@ -4185,9 +4176,7 @@ int osql_send_insrec(char *tohost, unsigned long long rqid, uuid_t uuid,
         sbuf2flush(logsb);
     }
 
-    rc = (nData > sent) ? offload_net_send_tail(tohost, type, buf, msglen, 0,
-                                                pData + sent, nData - sent)
-                        : offload_net_send(tohost, type, buf, msglen, 0);
+    rc = offload_net_send(tohost, type, buf, buf_size, 0);
 
     return rc;
 }
@@ -4224,7 +4213,6 @@ int osql_send_dbq_consume(char *tohost, unsigned long long rqid, uuid_t uuid,
     }
     return offload_net_send(tohost, type, &rpl, sz, 0);
 }
-
 
 /**
  * Send DELREC op
@@ -6646,7 +6634,7 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
             osql_set_delayed(iq);
         }
 
-        if (dt.flags != 5 /* Replace */) {
+        if (dt.flags != 5 /* Replace */ && dt.flags != 20 /* Upsert */) {
             rc = add_record(iq, trans, tag_name_ondisk,
                             tag_name_ondisk + tag_name_ondisk_len, /*tag*/
                             pData, pData + dt.nData,               /*dta*/
@@ -6657,6 +6645,35 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
                             dt.dk, BLOCK2_ADDKL, step,
                             addflags); /* do I need this?*/
         } else {
+            on_conflict_t oc;
+            oc.flag = dt.flags;
+
+            if (oc.flag == 20) {
+                p_buf_end = pData + dt.nData;
+
+                p_buf_end = buf_no_net_get(&(oc.nCols), sizeof(oc.nCols),
+                                           p_buf_end, p_buf_end +
+                                           sizeof(oc.nCols));
+                p_buf_end = buf_no_net_get(&(oc.nExpr), sizeof(oc.nExpr),
+                                           p_buf_end, p_buf_end +
+                                           sizeof(oc.nExpr));
+                p_buf_end = buf_no_net_get(&(oc.collist_len),
+                                           sizeof(oc.collist_len), p_buf_end,
+                                           p_buf_end +
+                                           sizeof(oc.collist_len));
+                p_buf_end = buf_no_net_get(&(oc.exprlist_len),
+                                           sizeof(oc.exprlist_len), p_buf_end,
+                                           p_buf_end +
+                                           sizeof(oc.exprlist_len));
+                p_buf_end = buf_no_net_get(&(oc.where_len),
+                                           sizeof(oc.where_len), p_buf_end,
+                                           p_buf_end +
+                                           sizeof(oc.where_len));
+                oc.collist = (char *) p_buf_end;
+                oc.exprlist = oc.collist + oc.collist_len;
+                oc.where = oc.exprlist + oc.exprlist_len;
+            }
+
             rc = replace_record(iq, trans, tag_name_ondisk,
                                 tag_name_ondisk + tag_name_ondisk_len, /*tag*/
                                 pData, pData + dt.nData,               /*dta*/
@@ -6666,7 +6683,7 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
                                 &err->errcode, &err->ixnum,
                                 &rrn, &genid, /*new id*/
                                 dt.dk, BLOCK2_ADDKL, step,
-                                addflags, dt.flags); /* do I need this?*/
+                                addflags, &oc);
         }
 
         free_blob_buffers(blobs, MAXBLOBS);

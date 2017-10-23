@@ -3493,6 +3493,7 @@ static int need_flush(struct sqlclntstate *clnt)
                : 1;
 }
 
+#if 0
 static void get_return_row_schema(struct sqlthdstate *thd,
                                   struct sqlclntstate *clnt, sqlite3_stmt *stmt)
 {
@@ -3525,6 +3526,7 @@ static void get_return_row_schema(struct sqlthdstate *thd,
             '\0';
     }
 }
+#endif
 
 void thr_set_current_sql(const char *sql)
 {

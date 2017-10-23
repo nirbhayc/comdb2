@@ -4064,3 +4064,106 @@ cleanup:
     free(t_value);
     return;
 }
+
+Cdb2OnConflict *comdb2OnConflictCreate(int flag, ExprList *setlist, ExprSpan *where)
+{
+    Cdb2OnConflict *oc;
+
+    oc = (Cdb2OnConflict *)calloc(1, sizeof(Cdb2OnConflict));
+    if (!oc) {
+        return 0;
+    }
+
+    oc->flag = flag;
+    oc->setlist = setlist;
+    oc->where = where;
+    return oc;
+}
+
+int comdb2OnConflictDelete(Cdb2OnConflict *oc)
+{
+    free(oc);
+    return 0;
+}
+
+on_conflict_t *parseOnConflict(struct Vdbe *pVdbe, Cdb2OnConflict *oc)
+{
+    on_conflict_t *p;
+    char *pExprDesc;
+    char *col_buf;
+    char *col_buf_end;
+    char *expr_buf;
+    char *expr_buf_end;
+    size_t col_sz;
+    size_t expr_sz;
+    size_t len;
+    int i;
+
+    assert(oc);
+
+    p = (on_conflict_t *)calloc(1, sizeof(on_conflict_t));
+    if (!p)
+        return 0;
+
+    p->flag = oc->flag;
+
+    if (oc->setlist) {
+        col_buf = 0;
+        col_buf_end = 0;
+        col_sz = 0;
+        expr_buf = 0;
+        expr_buf_end = 0;
+        expr_sz = 0;
+
+        for (i = 0; i < oc->setlist->nExpr; i++) {
+            /* Copy column name */
+            len = strlen(oc->setlist->a[i].zName);
+            col_sz += len + 1;
+            col_buf = realloc(col_buf, col_sz);
+            /* TODO: check for failure */
+            if (col_buf_end == 0)
+                col_buf_end = col_buf;
+            strncpy(col_buf_end, oc->setlist->a[i].zName, len);
+            col_buf_end += (len + 1);
+            p->collist_len += (len + 1);
+
+            /* Increment the column count. */
+            p->nCols ++;
+
+            /* Copy the corresponding expression. Note: this could be NULL. */
+            if (oc->setlist->a[i].zSpan) {
+                len = strlen(oc->setlist->a[i].zSpan);
+                expr_sz += len + 1;
+                expr_buf = realloc(expr_buf, expr_sz);
+                /* TODO: check for failure */
+                if (expr_buf_end == 0)
+                    expr_buf_end = expr_buf;
+                strncpy(expr_buf_end, oc->setlist->a[i].zSpan, len);
+                expr_buf_end += (len + 1);
+                p->exprlist_len += (len + 1);
+
+                /* Increment the column count. */
+                p->nExpr ++;
+            }
+        }
+
+        p->collist = col_buf;
+        p->exprlist = expr_buf;
+    }
+
+    assert(p->nCols == oc->setlist->nExpr);
+
+    /* Use of row values is currently not supported. */
+    if (p->nCols != p->nExpr)
+        return 0;
+
+    if (oc->where) {
+        len  = oc->where->zEnd - oc->where->zStart;
+        p->where = malloc(len + 1);
+        /* TODO: Check for error */
+        memcpy(p->where, oc->where->zStart, len);
+        p->where[len] = 0;
+        p->where_len = len + 1;
+    }
+    return p;
+}

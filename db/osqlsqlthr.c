@@ -35,12 +35,12 @@
 #include <util.h>
 #include <unistd.h>
 #include "sql.h"
+#include "comdb2.h"
 #include "osqlsqlthr.h"
 #include "osqlshadtbl.h"
 #include "osqlcomm.h"
 #include "osqlcheckboard.h"
 #include <bdb_api.h>
-#include "comdb2.h"
 #include "genid.h"
 #include "comdb2util.h"
 #include "comdb2uuid.h"
@@ -69,7 +69,7 @@ static int osql_send_delidx_logic(struct BtCursor *pCur, struct sql_thread *thd,
                                   int nettype);
 static int osql_send_insrec_logic(struct BtCursor *pCur, struct sql_thread *thd,
                                   char *pData, int nData, int nettype,
-                                  int on_conflict);
+                                  on_conflict_t *oc);
 static int osql_send_insidx_logic(struct BtCursor *pCur, struct sql_thread *thd,
                                   int nettype);
 static int osql_send_updrec_logic(struct BtCursor *pCur, struct sql_thread *thd,
@@ -221,7 +221,8 @@ int osql_insidx(struct BtCursor *pCur, struct sql_thread *thd, int is_update)
  *
  */
 int osql_insrec(struct BtCursor *pCur, struct sql_thread *thd, char *pData,
-                int nData, blob_buffer_t *blobs, int maxblobs, int on_conflict)
+                int nData, blob_buffer_t *blobs, int maxblobs,
+                on_conflict_t *oc)
 {
     int rc = 0;
 
@@ -245,7 +246,7 @@ int osql_insrec(struct BtCursor *pCur, struct sql_thread *thd, char *pData,
         }
 
         return osql_send_insrec_logic(pCur, thd, pData, nData,
-                                      NET_OSQL_SOCK_RPL, on_conflict);
+                                      NET_OSQL_SOCK_RPL, oc);
     } else
         return osql_save_insrec(pCur, thd, pData, nData);
 }
@@ -1124,7 +1125,7 @@ static int osql_send_delidx_logic(struct BtCursor *pCur, struct sql_thread *thd,
 
 static int osql_send_insrec_logic(struct BtCursor *pCur, struct sql_thread *thd,
                                   char *pData, int nData, int nettype,
-                                  int on_conflict)
+                                  on_conflict_t *oc)
 {
 
     struct sqlclntstate *clnt = thd->sqlclntstate;
@@ -1142,7 +1143,7 @@ static int osql_send_insrec_logic(struct BtCursor *pCur, struct sql_thread *thd,
                               (gbl_partial_indexes && pCur->db->ix_partial)
                                   ? clnt->ins_keys
                                   : -1ULL,
-                              pData, nData, nettype, osql->logsb, on_conflict);
+                              pData, nData, nettype, osql->logsb, oc);
         RESTART_SOCKSQL;
     }
 

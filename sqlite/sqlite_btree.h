@@ -298,7 +298,7 @@ struct BtreePayload {
 };
 
 int sqlite3BtreeInsert(BtCursor*, const BtreePayload *pPayload,
-                       int bias, int seekResult, int on_conflict);
+                       int bias, int seekResult, on_conflict_t *oc);
 int sqlite3BtreeFirst(BtCursor*, int *pRes);
 int sqlite3BtreeLast(BtCursor*, int *pRes);
 int sqlite3BtreeNext(BtCursor*, int *pRes);

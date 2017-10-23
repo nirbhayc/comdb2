@@ -1061,6 +1061,8 @@ typedef struct Cdb2TrigEvent Cdb2TrigEvent;
 typedef struct Cdb2TrigEvents Cdb2TrigEvents;
 typedef struct Cdb2TrigTables Cdb2TrigTables;
 typedef struct comdb2_ddl_context Cdb2DDL;
+typedef struct comdb2_on_conflict Cdb2OnConflict;
+typedef struct on_conflict on_conflict_t;
 
 /*
 ** Defer sourcing vdbe.h and btree.h until after the "u8" and
@@ -1405,7 +1407,7 @@ struct sqlite3 {
   /* COMDB2 MODIFICATION */
   u8 should_fingerprint;
   char fingerprint[16];              /* Figerprint of the last query that was prepared */
-  int on_conflict;
+  on_conflict_t *onConflict;
 };
 
 /*
@@ -2031,6 +2033,8 @@ struct FKey {
 
 #define OE_Default  10  /* Do whatever the default action is */
 
+/* COMDB2 MODIFICATION */
+#define OE_Upsert   20  /* Update the existing record */
 
 /*
 ** An instance of the following structure is passed as the first
@@ -3747,7 +3751,7 @@ void sqlite3DeleteTable(sqlite3*, Table*);
 # define sqlite3AutoincrementBegin(X)
 # define sqlite3AutoincrementEnd(X)
 #endif
-void sqlite3Insert(Parse*, SrcList*, Select*, IdList*, int);
+void sqlite3Insert(Parse*, SrcList*, Select*, IdList*, Cdb2OnConflict*);
 void *sqlite3ArrayAllocate(sqlite3*,void*,int,int*,int*);
 IdList *sqlite3IdListAppend(sqlite3*, IdList*, Token*);
 int sqlite3IdListIndex(IdList*,const char*);
@@ -4490,5 +4494,29 @@ void sqlite3FingerprintDelete(sqlite3 *db, SrcList *pTabList, Expr *pWhere);
 void sqlite3FingerprintInsert(sqlite3 *db, SrcList *, Select *, IdList *, With *);
 void sqlite3FingerprintUpdate(sqlite3 *db, SrcList *pTabList, ExprList *pChanges, Expr *pWhere, int onError);
 void comdb2WriteTransaction(Parse*);
+
+struct comdb2_on_conflict {
+    int flag;
+    ExprList *setlist;
+    ExprSpan *where;
+};
+
+Cdb2OnConflict *comdb2OnConflictCreate(int flag, ExprList *setlist,
+                                       ExprSpan *where);
+int comdb2OnConflictDelete(Cdb2OnConflict *oc);
+
+struct on_conflict {
+    int flag;
+    int nCols; /* # of columns in the setlist. */
+    int nExpr; /* # of expressions in the setlist. */
+    size_t collist_len;
+    size_t exprlist_len;
+    size_t where_len;
+    char *collist;
+    char *exprlist;
+    char *where;
+};
+
+on_conflict_t *parseOnConflict(struct Vdbe *pVdbe, Cdb2OnConflict *oc);
 
 #endif /* _SQLITEINT_H_ */

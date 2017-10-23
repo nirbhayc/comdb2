@@ -1,7 +1,6 @@
 #ifndef COMDB2BUILD_H
 #define COMDB2BUILD_H
 
-#include <sqliteInt.h>
 #include <schemachange.h>
 
 #define SQLITE_OPEN_READWRITE        0x00000002  /* Ok for sqlite3_open_v2() */

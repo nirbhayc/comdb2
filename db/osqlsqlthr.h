@@ -46,6 +46,8 @@ struct schema_change_type; // TODO fix there is a cyclicinlclude
                             */
 int osql_delrec(struct BtCursor *pCur, struct sql_thread *thd);
 
+typedef struct on_conflict on_conflict_t;
+
 /**
  * Process a sqlite insert row request
  * Row is provided by (pData, nData, blobs, maxblobs)
@@ -53,7 +55,8 @@ int osql_delrec(struct BtCursor *pCur, struct sql_thread *thd);
  *
  */
 int osql_insrec(struct BtCursor *pCur, struct sql_thread *thd, char *pData,
-                int nData, blob_buffer_t *blobs, int maxblobs, int on_conflict);
+                int nData, blob_buffer_t *blobs, int maxblobs,
+                on_conflict_t *oc);
 
 /**
  * Process a sqlite insert row request

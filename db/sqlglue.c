@@ -864,8 +864,7 @@ struct mem_info {
     int fldidx;
 };
 
-static int mem_to_ondisk(void *outbuf, struct field *f, struct mem_info *info,
-                         bias_info *bias_info)
+int mem_to_ondisk(void *outbuf, struct field *f, struct mem_info *info, bias_info *bias_info)
 {
     Mem *m = info->m;
     struct schema *s = info->s;
@@ -8021,7 +8020,7 @@ int sqlite3BtreeBeginStmt(Btree *pBt, int iStatement)
 int sqlite3BtreeInsert(
     BtCursor *pCur, /* Insert data into the table of this cursor */
     const BtreePayload *pPayload, /* The key and data of the new record */
-    int bias, int seekResult, int on_conflict)
+    int bias, int seekResult, on_conflict_t *oc)
 {
     const void *pKey = pPayload->pKey;
     sqlite3_int64 nKey = pPayload->nKey;
@@ -8272,8 +8271,7 @@ int sqlite3BtreeInsert(
                 clnt->log_effects.num_updated++;
             } else {
                 rc = osql_insrec(pCur, thd, pCur->ondisk_buf,
-                                 getdatsize(pCur->db), blobs, MAXBLOBS,
-                                 on_conflict);
+                                 getdatsize(pCur->db), blobs, MAXBLOBS, oc);
                 clnt->effects.num_inserted++;
                 clnt->log_effects.num_inserted++;
             }
@@ -11431,9 +11429,9 @@ static void ondisk_blob_to_sqlite_mem(struct field *f, Mem *m,
     }
 }
 
-static int get_data_from_ondisk(struct schema *sc, uint8_t *in,
-                                blob_buffer_t *blobs, size_t maxblobs, int fnum,
-                                Mem *m, uint8_t flip_orig, const char *tzname)
+int get_data_from_ondisk(struct schema *sc, uint8_t *in, blob_buffer_t *blobs,
+                         size_t maxblobs, int fnum, Mem *m, uint8_t flip_orig,
+                         const char *tzname)
 {
     int null;
     i64 ival;
@@ -11910,8 +11908,8 @@ int verify_indexes_column_value(sqlite3_stmt *stmt, void *sm)
     return 0;
 }
 
-static int run_verify_indexes_query(char *sql, struct schema *sc, Mem *min,
-                                     Mem *mout, int *exist)
+int run_verify_indexes_query(char *sql, struct schema *sc, Mem *min,
+                             Mem *mout, int *exist)
 {
     struct sqlclntstate clnt;
     struct schema_mem sm;
@@ -12004,7 +12002,7 @@ unsigned long long verify_indexes(struct dbtable *db, uint8_t *rec,
         rc = get_data_from_ondisk(sc, rec, blobs, maxblobs, i, &m[i], 0,
                                   "America/New_York");
         if (rc) {
-            logmsg(LOGMSG_ERROR, "%s: failed to convert to ondisk\n", __func__);
+            logmsg(LOGMSG_ERROR, "%s: failed to convert from ondisk\n", __func__);
             goto done;
         }
     }
@@ -12155,6 +12153,7 @@ int indexes_expressions_data(struct schema *sc, const char *inbuf, char *outbuf,
         }
     }
 
+    // Look here to CTE example
     build_indexes_expressions_query(sql, sc, "expridx_temp", f->name);
 
     rc =

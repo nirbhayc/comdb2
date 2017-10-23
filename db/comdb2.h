@@ -2721,13 +2721,15 @@ int add_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
                int *ixfailnum, int *rrn, unsigned long long *genid,
                unsigned long long ins_keys, int opcode, int blkpos, int flags);
 
+typedef struct on_conflict on_conflict_t;
+
 int replace_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
                    const uint8_t *p_buf_tag_name_end, uint8_t *p_buf_rec,
                    const uint8_t *p_buf_rec_end,
                    const unsigned char fldnullmap[32], blob_buffer_t *blobs,
                    size_t maxblobs, int *opfailcode, int *ixfailnum, int *rrn,
                    unsigned long long *genid, unsigned long long ins_keys,
-                   int opcode, int blkpos, int flags, int on_conflict);
+                   int opcode, int blkpos, int flags, on_conflict_t *oc);
 
 int upgrade_record(struct ireq *iq, void *trans, unsigned long long vgenid,
                    uint8_t *p_buf_rec, const uint8_t *p_buf_rec_end,
