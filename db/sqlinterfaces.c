@@ -5238,14 +5238,6 @@ static int run_stmt(struct sqlthdstate *thd, struct sqlclntstate *clnt,
 
     *fast_error = 1;
 
-    if (clnt->verify_indexes && steprc == SQLITE_ROW) {
-        clnt->has_sqliterow = 1;
-        return verify_indexes_column_value(stmt, clnt->schema_mems);
-    } else if (clnt->verify_indexes && steprc == SQLITE_DONE) {
-        clnt->has_sqliterow = 0;
-        return 0;
-    }
-
     /* create the row format and send it to client */
     columns = newsql_alloc_row(ncols);
     if (!columns)
@@ -5736,37 +5728,6 @@ static void sqlengine_work_lua_thread(void *thddata, void *work)
 
 int gbl_debug_sqlthd_failures;
 
-static int execute_verify_indexes(struct sqlthdstate *thd,
-                                  struct sqlclntstate *clnt)
-{
-    int rc;
-    if (thd->sqldb == NULL) {
-        rdlock_schema_lk();
-        rc = sqlengine_prepare_engine(thd, clnt, 1);
-        unlock_schema_lk();
-        if (rc) {
-            return rc;
-        }
-    }
-    sqlite3_stmt *stmt;
-    const char *tail;
-    rc = sqlite3_prepare_v2(thd->sqldb, clnt->sql, -1, &stmt, &tail);
-    if (rc != SQLITE_OK) {
-        return rc;
-    }
-    bind_verify_indexes_query(stmt, clnt->schema_mems);
-    run_stmt_setup(clnt, stmt);
-    if ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
-        clnt->has_sqliterow = 1;
-        return verify_indexes_column_value(stmt, clnt->schema_mems);
-    }
-    clnt->has_sqliterow = 0;
-    if (rc == SQLITE_DONE) {
-        return 0;
-    }
-    return rc;
-}
-
 static void sqlengine_work_appsock(void *thddata, void *work)
 {
     struct sqlthdstate *thd = thddata;
@@ -5839,8 +5800,8 @@ static void sqlengine_work_appsock(void *thddata, void *work)
            reset it here before returning */
         bzero(&clnt->fdb_state.xerr, sizeof(clnt->fdb_state.xerr));
         clnt->fdb_state.preserve_err = 0;
-    } else if (clnt->verify_indexes) {
-        clnt->query_rc = execute_verify_indexes(thd, clnt);
+    } else if (clnt->isql_exec_mode == ISQL_EXEC_QUICK) {
+        clnt->query_rc = isql_exec(thd, clnt);
     } else {
         clnt->query_rc = execute_sql_query(thd, clnt);
     }
@@ -6189,7 +6150,7 @@ static void thdpool_sqlengine_end(struct thdpool *pool, void *thd)
 }
 
 
-static inline int tdef_to_tranlevel(int tdef)
+int tdef_to_tranlevel(int tdef)
 {
     switch (tdef) {
     case SQL_TDEF_SOCK:
@@ -6328,9 +6289,6 @@ void reset_clnt(struct sqlclntstate *clnt, SBUF2 *sb, int initial)
 
     clnt->ins_keys = 0ULL;
     clnt->del_keys = 0ULL;
-    clnt->has_sqliterow = 0;
-    clnt->verify_indexes = 0;
-    clnt->schema_mems = NULL;
     clnt->init_gen = 0;
     for (int i = 0; i < clnt->ncontext; i++) {
         free(clnt->context[i]);
@@ -6338,6 +6296,9 @@ void reset_clnt(struct sqlclntstate *clnt, SBUF2 *sb, int initial)
     free(clnt->context);
     clnt->context = NULL;
     clnt->ncontext = 0;
+
+    assert(!clnt->isql_data);
+    assert(!clnt->isql_exec_mode);
 }
 
 void reset_clnt_flags(struct sqlclntstate *clnt)
@@ -9330,100 +9291,6 @@ void comdb2_set_sqlite_vdbe_dtprec(Vdbe *p)
     if (!sqlthd)
         return;
     comdb2_set_sqlite_vdbe_dtprec_int(p, sqlthd->sqlclntstate);
-}
-
-void run_internal_sql(char *sql)
-{
-    struct sqlclntstate clnt;
-    reset_clnt(&clnt, NULL, 1);
-
-    pthread_mutex_init(&clnt.wait_mutex, NULL);
-    pthread_cond_init(&clnt.wait_cond, NULL);
-    pthread_mutex_init(&clnt.write_lock, NULL);
-    pthread_mutex_init(&clnt.dtran_mtx, NULL);
-    clnt.dbtran.mode = tdef_to_tranlevel(gbl_sql_tranlevel_default);
-    // clnt.high_availability = 0;
-    set_high_availability(&clnt, 0);
-    clnt.sql = sql;
-
-    dispatch_sql_query(&clnt);
-    if (clnt.query_rc || clnt.saved_errstr) {
-        logmsg(LOGMSG_ERROR, "%s: Error from query: '%s' (rc = %d) \n", __func__, sql,
-               clnt.query_rc);
-        if (clnt.saved_errstr)
-            logmsg(LOGMSG_ERROR, "%s: Error: '%s' \n", __func__, clnt.saved_errstr);
-    }
-    clnt_reset_cursor_hints(&clnt);
-    osql_clean_sqlclntstate(&clnt);
-
-    if (clnt.dbglog) {
-        sbuf2close(clnt.dbglog);
-        clnt.dbglog = NULL;
-    }
-
-    /* XXX free logical tran?  */
-
-    clnt.dbtran.mode = TRANLEVEL_INVALID;
-    if (clnt.query_stats)
-        free(clnt.query_stats);
-
-    pthread_mutex_destroy(&clnt.wait_mutex);
-    pthread_cond_destroy(&clnt.wait_cond);
-    pthread_mutex_destroy(&clnt.write_lock);
-    pthread_mutex_destroy(&clnt.dtran_mtx);
-}
-
-void start_internal_sql_clnt(struct sqlclntstate *clnt)
-{
-    reset_clnt(clnt, NULL, 1);
-
-    pthread_mutex_init(&clnt->wait_mutex, NULL);
-    pthread_cond_init(&clnt->wait_cond, NULL);
-    pthread_mutex_init(&clnt->write_lock, NULL);
-    pthread_mutex_init(&clnt->dtran_mtx, NULL);
-    clnt->dbtran.mode = tdef_to_tranlevel(gbl_sql_tranlevel_default);
-    // clnt->high_availability = 0;
-    set_high_availability(clnt, 0);
-    clnt->is_newsql = 0;
-}
-
-int run_internal_sql_clnt(struct sqlclntstate *clnt, char *sql)
-{
-#ifdef DEBUGQUERY
-    printf("run_internal_sql_clnt() sql '%s'\n", sql);
-#endif
-    clnt->sql = sql;
-    dispatch_sql_query(clnt);
-    int rc = 0;
-
-    if (clnt->query_rc || clnt->saved_errstr) {
-        logmsg(LOGMSG_ERROR, "%s: Error from query: '%s' (rc = %d) \n", __func__, sql,
-               clnt->query_rc);
-        if (clnt->saved_errstr)
-            logmsg(LOGMSG_ERROR, "%s: Error: '%s' \n", __func__, clnt->saved_errstr);
-        rc = 1;
-    }
-    return rc;
-}
-
-void end_internal_sql_clnt(struct sqlclntstate *clnt)
-{
-    clnt_reset_cursor_hints(clnt);
-    osql_clean_sqlclntstate(clnt);
-
-    if (clnt->dbglog) {
-        sbuf2close(clnt->dbglog);
-        clnt->dbglog = NULL;
-    }
-
-    clnt->dbtran.mode = TRANLEVEL_INVALID;
-    if (clnt->query_stats)
-        free(clnt->query_stats);
-
-    pthread_mutex_destroy(&clnt->wait_mutex);
-    pthread_cond_destroy(&clnt->wait_cond);
-    pthread_mutex_destroy(&clnt->write_lock);
-    pthread_mutex_destroy(&clnt->dtran_mtx);
 }
 
 static int send_dummy(struct sqlclntstate *clnt)

@@ -27,6 +27,7 @@
 #include "osqlsqlthr.h"
 #include "osqlcheckboard.h"
 #include "osqlshadtbl.h"
+#include "isql.h"
 
 #define TYPEDEF(x) typedef struct x x;
 TYPEDEF(BtCursor)
@@ -482,9 +483,6 @@ struct sqlclntstate {
     /* partial indexes */
     unsigned long long ins_keys;
     unsigned long long del_keys;
-    int has_sqliterow;
-    int verify_indexes;
-    void *schema_mems;
 
     /* indexes on expressions */
     uint8_t **idxInsert;
@@ -515,6 +513,9 @@ struct sqlclntstate {
 
     hash_t *ddl_tables;
     hash_t *dml_tables;
+
+    uint8_t isql_exec_mode;
+    isql_data_t *isql_data;
 };
 
 /* Query stats. */

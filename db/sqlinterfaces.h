@@ -261,10 +261,6 @@ double query_cost(struct sql_thread *thd);
 
 const char *get_saved_errstr_from_clnt(struct sqlclntstate *);
 
-void run_internal_sql(char *sql);
-void start_internal_sql_clnt(struct sqlclntstate *clnt);
-int run_internal_sql_clnt(struct sqlclntstate *clnt, char *sql);
-void end_internal_sql_clnt(struct sqlclntstate *clnt);
 CDB2SQLRESPONSE__Column** newsql_alloc_row(int ncols);
 void newsql_dealloc_row(CDB2SQLRESPONSE__Column **columns, int ncols);
 void reset_clnt_flags(struct sqlclntstate *);
