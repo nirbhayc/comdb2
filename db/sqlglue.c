@@ -1215,6 +1215,43 @@ done:
     return rc ? -1 : 0;
 }
 
+int sqlite_to_ondisk2(struct schema *s, Mem *row, int column_count, void *out,
+                      const char *tzname, blob_buffer_t *outblob, int maxblobs,
+                      struct convert_failure *fail_reason)
+{
+    int rc = 0;
+    int clen = 0;
+    struct field *f;
+    int sign;
+
+    struct field_conv_opts_tz convopts = {0};
+    convopts.flags = gbl_large_str_idx_find ? FLD_CONV_TRUNCATE : 0;
+
+    struct mem_info info = {0};
+
+    info.s = s;
+    info.tzname = tzname;
+    // info.nblobs = &nblobs;
+    info.convopts = &convopts;
+    info.outblob = outblob;
+    info.maxblobs = maxblobs;
+    info.fail_reason = fail_reason;
+
+    for (int i = 0; i < column_count; ++i) {
+        f = &info.s->member[i];
+        info.m = &row[i];
+        info.fldidx = i;
+        rc = mem_to_ondisk(out, f, &info, NULL);
+        if (rc)
+            break;
+        clen += f->len;
+    }
+    if (rc)
+        return rc;
+
+    return clen;
+}
+
 int sqlite_to_ondisk(struct schema *s, const void *inp, int len, void *outp,
                      const char *tzname, blob_buffer_t *outblob, int maxblobs,
                      struct convert_failure *fail_reason, BtCursor *pCur)
@@ -1236,7 +1273,6 @@ int sqlite_to_ondisk(struct schema *s, const void *inp, int len, void *outp,
     struct field_conv_opts_tz convopts = {.flags = 0};
 
     info.s = s;
-    info.fail_reason = fail_reason;
     info.tzname = tzname;
     info.m = &m;
     info.nblobs = &nblobs;

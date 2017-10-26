@@ -176,6 +176,7 @@ int isql_exec(struct sqlthdstate *thd, struct sqlclntstate *clnt)
             }
             clnt->isql_data->row_count++;
         }
+        clnt->isql_data->col_count = col_count;
     }
 
     if (rc == SQLITE_DONE) {

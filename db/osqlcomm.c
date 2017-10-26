@@ -2084,24 +2084,6 @@ static uint8_t *osqlcomm_upd_rpl_type_put(const osql_upd_rpl_t *p_osql_upd_rpl,
     return p_buf;
 }
 
-static const uint8_t *osqlcomm_upd_rpl_type_get(osql_upd_rpl_t *p_osql_upd_rpl,
-                                                const uint8_t *p_buf,
-                                                const uint8_t *p_buf_end,
-                                                int recv_dk)
-{
-    if (p_buf_end < p_buf ||
-        (recv_dk ? OSQLCOMM_UPD_RPL_TYPE_LEN
-                 : OSQLCOMM_UPD_RPL_TYPE_LEN - sizeof(unsigned long long) -
-                       sizeof(unsigned long long)) > (p_buf_end - p_buf))
-        return NULL;
-
-    p_buf = osqlcomm_rpl_type_get(&(p_osql_upd_rpl->hd), p_buf, p_buf_end);
-    p_buf =
-        osqlcomm_upd_type_get(&(p_osql_upd_rpl->dt), p_buf, p_buf_end, recv_dk);
-
-    return p_buf;
-}
-
 typedef struct osql_upd_uuid_rpl {
     osql_uuid_rpl_t hd;
     osql_upd_t dt;

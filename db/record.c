@@ -667,7 +667,9 @@ struct mem_info {
     int fldidx;
 };
 
-int mem_to_ondisk(void *outbuf, struct field *f, struct mem_info *info, bias_info *bias_info);
+int sqlite_to_ondisk2(struct schema *s, Mem *row, int column_count, void *out,
+                      const char *tzname, blob_buffer_t *outblob, int maxblobs,
+                      struct convert_failure *fail_reason);
 
 int replace_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
                    const uint8_t *p_buf_tag_name_end, uint8_t *p_buf_rec,
@@ -1077,11 +1079,13 @@ int replace_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
                     strbuf_append(sql, "(");
                     strbuf_append(sql, dbname_schema->member[0].name);
                     for (i = 1; i < dbname_schema->nmembers; ++i) {
-                        strbuf_appendf(sql, ", %s", dbname_schema->member[i]);
+                        strbuf_appendf(sql, ", %s",
+                                       dbname_schema->member[i].name);
                     }
                     strbuf_appendf(sql, ") AS (SELECT @%s", dbname_schema->member[0].name);
                     for (i = 1; i < dbname_schema->nmembers; ++i) {
-                        strbuf_appendf(sql, ", @%s", dbname_schema->member[i]);
+                        strbuf_appendf(sql, ", @%s",
+                                       dbname_schema->member[i].name);
                     }
                     strbuf_append(sql, ") SELECT ");
 
@@ -1099,38 +1103,24 @@ int replace_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
                         strbuf_appendf(sql, " WHERE %s", oc->where);
                     }
 
-                    int exist;
-                    rc = run_verify_indexes_query((char *)strbuf_buf(sql),
-                                                  dbname_schema, m,
-                                                  &mout /* must be single record */,
-                                                  &exist);
-
-                    if (exist) {
+                    struct sqlclntstate clnt;
+                    rc = isql_init(&clnt);
+                    clnt.isql_data->s = dbname_schema;
+                    clnt.isql_data->in = m;
+                    clnt.isql_data->out = &mout;
+                    logmsg(LOGMSG_ERROR, "%s: Executing: %s\n", __func__,
+                           strbuf_buf(sql));
+                    rc = isql_run(&clnt, (char *)strbuf_buf(sql),
+                                  ISQL_EXEC_QUICK);
+                    if (clnt.isql_data->row_count) {
                         void *new_record;
-                        int nblobs;
-                        struct field_conv_opts_tz convopts = {.flags = 0};
-
                         new_record = alloca(reclen);
 
-                        struct mem_info info;
-                        info.s = dbname_schema;
-                        info.null = 0;
-                        info.fail_reason = 0;
-                        info.tzname = "America/New_York";
-                        info.m = &mout;
-                        info.nblobs = &nblobs;
-                        info.convopts = &convopts;
-                        info.outblob = NULL;
-                        info.maxblobs = maxblobs;
-                        info.fldidx = -1;
-
                         /* Convert row from sqlite to comdb2 format. */
-                        rc = mem_to_ondisk(new_record, &dbname_schema->member[0], &info, NULL);
-#if 0
-                        rc = sqlite_to_ondisk(dbname_schema, NULL, 0, new_record,
-                                              "America/New_York", blobs, MAXBLOBS,
-                                              NULL, NULL);
-#endif
+                        rc = sqlite_to_ondisk2(dbname_schema, clnt.isql_data->out,
+                                               clnt.isql_data->col_count,
+                                               new_record, "America/New_York",
+                                               blobs, MAXBLOBS, NULL);
 
                         if (rc) {
                             // TODO: Check for failure.
@@ -1162,9 +1152,8 @@ int replace_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
                         if (rc) {
                             // TODO: Check for failure.
                         }
-                        goto err;
                     }
-                    break;
+                    goto err;
                 }
             case 5 /* Replace */: {
                 int failcode = 0;
