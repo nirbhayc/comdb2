@@ -1993,13 +1993,11 @@ typedef struct osql_upd {
     unsigned long long genid;
     unsigned long long ins_keys;
     unsigned long long del_keys;
-    int flags;  /* On conflict flags */
-    int unused; /* Padding */
     int nData;
     char pData[4]; /* alignment! - pass some useful data instead of padding */
 } osql_upd_t;
 
-enum { OSQLCOMM_UPD_TYPE_LEN = 8 + 8 + 8 + 4 + 4 + 4 + 4 };
+enum { OSQLCOMM_UPD_TYPE_LEN = 8 + 8 + 8 + 4 + 4 };
 
 BB_COMPILE_TIME_ASSERT(osqlcomm_upd_type_len,
                        sizeof(osql_upd_t) == OSQLCOMM_UPD_TYPE_LEN);
@@ -6653,7 +6651,10 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
                                            sizeof(oc.where_len));
                 oc.collist = (char *) p_buf_end;
                 oc.exprlist = oc.collist + oc.collist_len;
-                oc.where = oc.exprlist + oc.exprlist_len;
+                if (oc.where_len)
+                    oc.where = oc.exprlist + oc.exprlist_len;
+                else
+                    oc.where = 0;
             }
 
             rc = replace_record(iq, trans, tag_name_ondisk,
