@@ -4086,21 +4086,26 @@ int comdb2OnConflictDelete(Cdb2OnConflict *oc)
     return 0;
 }
 
-on_conflict_t *parseOnConflict(struct Vdbe *pVdbe, Cdb2OnConflict *oc)
+on_conflict_t *parseOnConflict(struct Vdbe *pVdbe, const char *table,
+                               Cdb2OnConflict *oc)
 {
+    Parse *pParse;
     on_conflict_t *p;
-    char *pExprDesc;
-    char *col_buf;
-    char *col_buf_end;
+    struct dbtable *tab;
+    struct schema *schema;
     char *expr_buf;
     char *expr_buf_end;
-    size_t col_sz;
     size_t expr_sz;
+    size_t old_sz;
     size_t len;
-    size_t sz_old;
-    int i;
 
+    tab = get_dbtable_by_name(table);
     assert(oc);
+    assert(pVdbe);
+    assert(tab);
+
+    pParse = pVdbe->pParse;
+    schema = tab->schema;
 
     p = (on_conflict_t *)calloc(1, sizeof(on_conflict_t));
     if (!p)
@@ -4109,63 +4114,97 @@ on_conflict_t *parseOnConflict(struct Vdbe *pVdbe, Cdb2OnConflict *oc)
     p->flag = oc->flag;
 
     if (oc->setlist) {
-        col_buf = 0;
-        col_buf_end = 0;
-        col_sz = 0;
         expr_buf = 0;
         expr_buf_end = 0;
         expr_sz = 0;
-        sz_old = 0;
+        old_sz = 0;
 
-        for (i = 0; i < oc->setlist->nExpr; i++) {
-            /* Copy column name */
-            len = strlen(oc->setlist->a[i].zName);
-            sz_old = col_sz;
-            col_sz += len + 1;
-            col_buf = realloc(col_buf, col_sz);
-            /* TODO: check for failure */
-            col_buf_end = col_buf + sz_old;
-            strncpy(col_buf_end, oc->setlist->a[i].zName, len);
-            col_buf_end += (len + 1);
-            p->collist_len += (len + 1);
-
-            /* Increment the column count. */
-            p->nCols ++;
-
-            /* Copy the corresponding expression. Note: this could be NULL. */
-            if (oc->setlist->a[i].zSpan) {
-                len = strlen(oc->setlist->a[i].zSpan);
-                sz_old = expr_sz;
-                expr_sz += len + 1;
-                expr_buf = realloc(expr_buf, expr_sz);
-                /* TODO: check for failure */
-                expr_buf_end = expr_buf + sz_old;
-                strncpy(expr_buf_end, oc->setlist->a[i].zSpan, len);
-                expr_buf_end += (len + 1);
-                p->exprlist_len += (len + 1);
-
-                /* Increment the column count. */
-                p->nExpr ++;
+        /* Check whether the columns in the set list are valid. */
+        for (int i = 0; i < oc->setlist->nExpr; i++) {
+            int found = 0;
+            for (int j = 0; j < schema->nmembers; j++) {
+                if (!strcasecmp(schema->member[j].name,
+                                oc->setlist->a[i].zName)) {
+                    found = 1;
+                    break;
+                }
+            }
+            if (!found) {
+                pParse->rc = SQLITE_MISUSE;
+                sqlite3ErrorMsg(pParse, "Invalid column '%s'",
+                                oc->setlist->a[i].zName);
+                goto err;
             }
         }
 
-        p->collist = col_buf;
+        /*
+          For each column in the table, check if there's a corresponding
+          expression in the set list. If there are multiple, pick the last
+          one.
+        */
+        for (int i = 0; i < schema->nmembers; i++) {
+            int last = -1; /* Assume this column has not matching expr. */
+
+            for (int j = 0; j < oc->setlist->nExpr; j++) {
+                if (!strcasecmp(schema->member[i].name,
+                                oc->setlist->a[j].zName)) {
+                    last = j;
+                }
+            }
+
+            /*
+              Check whether we found a match expression for the current
+              column.
+            */
+            if (last > -1) {
+                p->cols |= (1 << i);
+
+                if (!oc->setlist->a[last].zSpan) {
+                    /* Possibly 'row value' ? */
+                    setError(
+                        pParse, SQLITE_MISUSE,
+                        "'row value' is currently not supported in UPSERT");
+                    goto err;
+                }
+
+                /*
+                  Copy the corresponding expression. Note: this could be NULL.
+                */
+                len = strlen(oc->setlist->a[last].zSpan);
+                old_sz = expr_sz;
+                expr_sz += len + 1;
+                expr_buf = realloc(expr_buf, expr_sz);
+                if (!expr_buf) {
+                    setError(pParse, SQLITE_NOMEM, "System out of memory");
+                    goto err;
+                }
+                /* Fix the end pointer */
+                expr_buf_end = expr_buf + old_sz;
+                strncpy(expr_buf_end, oc->setlist->a[last].zSpan, len);
+                expr_buf_end += (len + 1);
+                p->exprlist_len += (len + 1);
+            }
+        }
+
         p->exprlist = expr_buf;
+        p->exprlist_len = expr_buf_end - expr_buf;
     }
 
-    assert(p->nCols == oc->setlist->nExpr);
-
-    /* Use of row values is currently not supported. */
-    if (p->nCols != p->nExpr)
-        return 0;
-
     if (oc->where && oc->where->pExpr) {
-        len  = oc->where->zEnd - oc->where->zStart;
+        len = oc->where->zEnd - oc->where->zStart;
         p->where = malloc(len + 1);
-        /* TODO: Check for error */
+        if (!p->where) {
+            setError(pParse, SQLITE_NOMEM, "System out of memory");
+            goto err;
+        }
         memcpy(p->where, oc->where->zStart, len);
         p->where[len] = 0;
         p->where_len = len + 1;
     }
+
     return p;
+
+err:
+    free(p);
+    return 0;
 }

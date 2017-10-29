@@ -4507,16 +4507,14 @@ int comdb2OnConflictDelete(Cdb2OnConflict *oc);
 
 struct on_conflict {
     int flag;
-    int nCols; /* # of columns in the setlist. */
-    int nExpr; /* # of expressions in the setlist. */
-    size_t collist_len;
-    size_t exprlist_len;
-    size_t where_len;
-    char *collist;
-    char *exprlist;
-    char *where;
+    unsigned long long cols; /* Bit map of columns in the set list */
+    size_t exprlist_len;     /* Size of all the expressions */
+    size_t where_len;        /* Size of the where clause */
+    char *exprlist; /* '\0' separated list of expressions in the set list */
+    char *where;    /* WHERE clause */
 };
 
-on_conflict_t *parseOnConflict(struct Vdbe *pVdbe, Cdb2OnConflict *oc);
+on_conflict_t *parseOnConflict(struct Vdbe *pVdbe, const char *table,
+                               Cdb2OnConflict *oc);
 
 #endif /* _SQLITEINT_H_ */

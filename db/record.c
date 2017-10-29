@@ -1020,147 +1020,139 @@ int replace_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
 
         if (rc == IX_FND) {
             switch (oc->flag) {
-            case 20 /* Upsert */:
-                {
-                    /*
-                      Steps:
-                      1. Retreive the conflicting record R' & table columns C'.
+            case 20 /* Upsert */: {
+                void *old_record;
+                int fndlen;
+                int rc;
 
-                      rc = ix_find_by_key_tran(iq, key, ixkeylen, ixnum, key,
-                                               &fndrrn, &fndgenid, NULL, NULL, 0,
-                                               trans);
-                      OR
-
-                      rc = ix_find_by_primkey_tran(iq, primkey, primkeysz, fndkey, &fndrrn,
-                                                   &vgenid, old_dta, &fndlen, od_len, trans);
-
-                      2. Form a CTE on C' & R' to perform SELECT using the given
-                      set list and WHERE predicate.
-                      3. Execute the CTE.
-                          3.1. No result set == NO ACTION
-                          3.2. 1 row == UPDATE the record with the matching genid.
-                    */
-                    void *old_record;
-                    int fndlen;
-                    int rc;
-                    int i;
-
-                    old_record = alloca(reclen);
-                    rc = ix_find_by_rrn_and_genid_tran(iq, fndrrn, fndgenid, old_record,
-                                                       &fndlen, reclen, trans);
-                    if (rc) {
-                        // TODO: handle error
-                    }
-
-                    Mem *m = NULL;
-                    Mem mout = {0};
-
-                    m = (Mem *)malloc(sizeof(Mem) * MAXCOLUMNS);
-
-                    for (i = 0; i < dbname_schema->nmembers; ++i) {
-                        memset(&m[i], 0, sizeof(Mem));
-                        rc = get_data_from_ondisk(dbname_schema, old_record,
-                                                  blobs, maxblobs, i, &m[i],
-                                                  0, "America/New_York");
-                        if (rc) {
-                            // TODO: handle error
-                        }
-                    }
-
-                    strbuf *sql;
-                    sql = strbuf_new();
-
-                    /* WITH "temp" (i, j) AS (SELECT 1, 1) SELECT i, j FROM temp; */
-
-                    strbuf_append(sql, "WITH ");
-                    strbuf_append(sql, "\"");
-                    strbuf_append(sql, "temp");
-                    strbuf_append(sql, "\"");
-                    strbuf_append(sql, "(");
-                    strbuf_append(sql, dbname_schema->member[0].name);
-                    for (i = 1; i < dbname_schema->nmembers; ++i) {
-                        strbuf_appendf(sql, ", %s",
-                                       dbname_schema->member[i].name);
-                    }
-                    strbuf_appendf(sql, ") AS (SELECT @%s", dbname_schema->member[0].name);
-                    for (i = 1; i < dbname_schema->nmembers; ++i) {
-                        strbuf_appendf(sql, ", @%s",
-                                       dbname_schema->member[i].name);
-                    }
-                    strbuf_append(sql, ") SELECT ");
-
-                    char *ptr = oc->exprlist;
-                    strbuf_appendf(sql, "%s", ptr);
-                    ptr += (strlen(oc->exprlist) + 1);
-                    for (i = 1; i < oc->nExpr; i ++) {
-                        strbuf_appendf(sql, ",%s ", ptr);
-                        ptr += (strlen(oc->exprlist) + 1);
-                    }
-
-                    /* Insert select clause here. */
-                    strbuf_append(sql, " FROM temp ");
-                    if (oc->where) {
-                        strbuf_appendf(sql, " WHERE %s", oc->where);
-                    }
-
-                    struct sqlclntstate clnt;
-                    rc = isql_init(&clnt);
-                    clnt.isql_data->s = dbname_schema;
-                    clnt.isql_data->in = m;
-                    clnt.isql_data->out = &mout;
-                    logmsg(LOGMSG_ERROR, "%s: Executing: %s\n", __func__,
-                           strbuf_buf(sql));
-                    rc = isql_run(&clnt, (char *)strbuf_buf(sql),
-                                  ISQL_EXEC_QUICK);
-                    if (clnt.isql_data->row_count) {
-                        void *new_record;
-                        new_record = alloca(reclen);
-
-                        /* Convert row from sqlite to comdb2 format. */
-                        rc = sqlite_to_ondisk2(dbname_schema, clnt.isql_data->out,
-                                               clnt.isql_data->col_count,
-                                               new_record, "America/New_York",
-                                               blobs, MAXBLOBS, NULL);
-
-                        if (rc) {
-                            // TODO: Check for failure.
-                        }
-
-                        static const char ondisktag[] = ".ONDISK";
-                        uint8_t *p_tagname_buf = (uint8_t *)ondisktag;
-                        uint8_t *p_tagname_buf_end = p_tagname_buf + strlen(ondisktag);
-
-                        int ixfailnum;
-                        int opfailcode;
-
-                        rc = upd_record(iq, trans, NULL, fndrrn, fndgenid,
-                                        p_tagname_buf, p_tagname_buf_end,
-                                        new_record, new_record + reclen, /* rec */
-                                        NULL, NULL, /* vrec */
-                                        NULL, /* nulls */
-                                        NULL, /* updcols */
-                                        NULL, /* blobs */
-                                        0, /* maxblobs */
-                                        &fndgenid, -1ULL, -1ULL,
-                                        &opfailcode, /* opfailcode */
-                                        &ixfailnum, /* ixfailnum */
-                                        0, /* opcode */
-                                        0, /* blkpos */
-                                        0 /* flags */
-                                       );
-
-                        if (rc) {
-                            // TODO: Check for failure.
-                        }
-                    }
-                    goto err;
+                old_record = alloca(reclen);
+                rc = ix_find_by_rrn_and_genid_tran(
+                    iq, fndrrn, fndgenid, old_record, &fndlen, reclen, trans);
+                if (rc) {
+                    logmsg(LOGMSG_ERROR, "%s: record not found", __func__);
+                    return ERR_INTERNAL;
                 }
+
+                Mem *m = NULL;
+                Mem mout = {0};
+
+                m = (Mem *)malloc(sizeof(Mem) * MAXCOLUMNS);
+
+                for (int i = 0; i < dbname_schema->nmembers; ++i) {
+                    memset(&m[i], 0, sizeof(Mem));
+                    rc = get_data_from_ondisk(dbname_schema, old_record, blobs,
+                                              maxblobs, i, &m[i], 0,
+                                              "America/New_York");
+                    if (rc) {
+                        logmsg(LOGMSG_ERROR, "%s: failed to get field from record", __func__);
+                        return ERR_INTERNAL;
+                    }
+                }
+
+                strbuf *sql;
+                sql = strbuf_new();
+
+                strbuf_append(sql, "WITH ");
+                strbuf_append(sql, "\"");
+                strbuf_append(sql, "temp");
+                strbuf_append(sql, "\"");
+                strbuf_append(sql, "(");
+                strbuf_append(sql, dbname_schema->member[0].name);
+                for (int i = 1; i < dbname_schema->nmembers; ++i) {
+                    strbuf_appendf(sql, ", %s", dbname_schema->member[i].name);
+                }
+                strbuf_appendf(sql, ") AS (SELECT @%s",
+                               dbname_schema->member[0].name);
+                for (int i = 1; i < dbname_schema->nmembers; ++i) {
+                    strbuf_appendf(sql, ", @%s", dbname_schema->member[i].name);
+                }
+                strbuf_append(sql, ") SELECT ");
+
+                char *ptr = oc->exprlist;
+                for (int i = 0; i < dbname_schema->nmembers; i++) {
+                    if ((oc->cols & (1 << i)) != 0) {
+                        strbuf_appendf(sql, "%s", ptr);
+                        ptr += (strlen(oc->exprlist) + 1);
+                    } else {
+                        strbuf_appendf(sql, "%s",
+                                       dbname_schema->member[i].name);
+                    }
+                    if (i < (dbname_schema->nmembers - 1))
+                        strbuf_append(sql, ", ");
+                }
+
+                /* Insert select clause here. */
+                strbuf_append(sql, " FROM temp ");
+                if (oc->where) {
+                    strbuf_appendf(sql, " WHERE %s", oc->where);
+                }
+
+                struct sqlclntstate clnt;
+                rc = isql_init(&clnt);
+                clnt.isql_data->s = dbname_schema;
+                clnt.isql_data->in = m;
+                clnt.isql_data->out = &mout;
+                logmsg(LOGMSG_ERROR, "%s: Executing: %s\n", __func__,
+                       strbuf_buf(sql));
+                rc = isql_run(&clnt, (char *)strbuf_buf(sql), ISQL_EXEC_QUICK);
+                if (rc) {
+                    logmsg(LOGMSG_ERROR, "%s: failed to run command '%s'",
+                           __func__, (char *)strbuf_buf(sql));
+                    return ERR_INTERNAL;
+                }
+
+                if (clnt.isql_data->row_count) {
+                    void *new_record;
+                    new_record = alloca(reclen);
+
+                    /* Convert row from sqlite to comdb2 format. */
+                    rc = sqlite_to_ondisk2(dbname_schema, clnt.isql_data->out,
+                                           clnt.isql_data->col_count,
+                                           new_record, "America/New_York",
+                                           blobs, MAXBLOBS, NULL);
+
+                    if (rc == -1) {
+                        logmsg(LOGMSG_ERROR, "%s: failed to convert record from sqlite to ondisk format", __func__);
+                        return ERR_INTERNAL;
+                    }
+
+                    static const char ondisktag[] = ".ONDISK";
+                    uint8_t *p_tagname_buf = (uint8_t *)ondisktag;
+                    uint8_t *p_tagname_buf_end =
+                        p_tagname_buf + strlen(ondisktag);
+
+                    int ixfailnum;
+                    int opfailcode;
+
+                    rc = upd_record(iq, trans, NULL, fndrrn, fndgenid,
+                                    p_tagname_buf, p_tagname_buf_end,
+                                    new_record, new_record + rc, /* rec */
+                                    NULL, NULL,                      /* vrec */
+                                    NULL,                            /* nulls */
+                                    NULL, /* updcols */
+                                    NULL, /* blobs */
+                                    0,    /* maxblobs */
+                                    &fndgenid, -1ULL, -1ULL,
+                                    &opfailcode, /* opfailcode */
+                                    &ixfailnum,  /* ixfailnum */
+                                    0,           /* opcode */
+                                    0,           /* blkpos */
+                                    0            /* flags */
+                                    );
+
+                    if (rc) {
+                        logmsg(LOGMSG_ERROR, "%s: failed to update record", __func__);
+                        return ERR_INTERNAL;
+                    }
+                }
+                goto err;
+            }
             case 5 /* Replace */: {
                 int failcode = 0;
                 /* Delete the record */
-                rc = del_record(iq, trans, NULL, 0, fndgenid,
-                                -1ULL /* FIX ME */, &failcode,
-                                ixfailnum, BLOCK2_DELKL, 0);
+                rc =
+                    del_record(iq, trans, NULL, 0, fndgenid, -1ULL /* FIX ME */,
+                               &failcode, ixfailnum, BLOCK2_DELKL, 0);
             } break;
             case 4 /* Ignore */:
             case 1 /* Rollback */: /* fallthrough */

@@ -4069,8 +4069,8 @@ int osql_send_insrec(char *tohost, unsigned long long rqid, uuid_t uuid,
           UPSERT data is stored right after the record data.
         */
         if (oc && (oc->flag == 20)) {
-            buf_size += (sizeof(int) * 2) + (sizeof(size_t) * 3) +
-                oc->collist_len + oc->exprlist_len + oc->where_len;
+            buf_size += sizeof(unsigned long long) + (sizeof(size_t) * 2) +
+                        oc->exprlist_len + oc->where_len;
         }
 
         buf = alloca(buf_size);
@@ -4099,8 +4099,7 @@ int osql_send_insrec(char *tohost, unsigned long long rqid, uuid_t uuid,
         ins_rpl.dt.flags = (oc) ? oc->flag : 0;
         ins_rpl.dt.nData = nData;
 
-        buf_size =
-            OSQLCOMM_INS_RPL_TYPE_LEN + nData - sizeof(ins_rpl.dt.pData);
+        buf_size = OSQLCOMM_INS_RPL_TYPE_LEN + nData - sizeof(ins_rpl.dt.pData);
 
         if (send_dk == 0)
             buf_size -= sizeof(dirty_keys);
@@ -4109,8 +4108,8 @@ int osql_send_insrec(char *tohost, unsigned long long rqid, uuid_t uuid,
           UPSERT data is stored right after the record data.
         */
         if (oc && (oc->flag == 20)) {
-            buf_size += (sizeof(int) * 2) + (sizeof(size_t) * 3) +
-                oc->collist_len + oc->exprlist_len + oc->where_len;
+            buf_size += sizeof(unsigned long long) + (sizeof(size_t) * 2) +
+                        oc->exprlist_len + oc->where_len;
         }
 
         buf = alloca(buf_size);
@@ -4131,18 +4130,13 @@ int osql_send_insrec(char *tohost, unsigned long long rqid, uuid_t uuid,
 
     /* Write UPSERT data. */
     if (oc && (oc->flag == 20)) {
-        p_buf = buf_no_net_put(&(oc->nCols), sizeof(oc->nCols), p_buf,
-                               p_buf_end);
-        p_buf = buf_no_net_put(&(oc->nExpr), sizeof(oc->nExpr), p_buf,
-                               p_buf_end);
-        p_buf = buf_no_net_put(&(oc->collist_len), sizeof(oc->collist_len),
-                               p_buf, p_buf_end);
+        p_buf = buf_no_net_put(&(oc->cols), sizeof(oc->cols), p_buf, p_buf_end);
         p_buf = buf_no_net_put(&(oc->exprlist_len), sizeof(oc->exprlist_len),
                                p_buf, p_buf_end);
         p_buf = buf_no_net_put(&(oc->where_len), sizeof(oc->where_len), p_buf,
                                p_buf_end);
-        p_buf = buf_no_net_put(oc->collist, oc->collist_len, p_buf, p_buf_end);
-        p_buf = buf_no_net_put(oc->exprlist, oc->exprlist_len, p_buf, p_buf_end);
+        p_buf =
+            buf_no_net_put(oc->exprlist, oc->exprlist_len, p_buf, p_buf_end);
         p_buf = buf_no_net_put(oc->where, oc->where_len, p_buf, p_buf_end);
     }
 
@@ -6631,26 +6625,16 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
             if (oc.flag == 20) {
                 p_buf_end = pData + dt.nData;
 
-                p_buf_end = buf_no_net_get(&(oc.nCols), sizeof(oc.nCols),
-                                           p_buf_end, p_buf_end +
-                                           sizeof(oc.nCols));
-                p_buf_end = buf_no_net_get(&(oc.nExpr), sizeof(oc.nExpr),
-                                           p_buf_end, p_buf_end +
-                                           sizeof(oc.nExpr));
-                p_buf_end = buf_no_net_get(&(oc.collist_len),
-                                           sizeof(oc.collist_len), p_buf_end,
-                                           p_buf_end +
-                                           sizeof(oc.collist_len));
+                p_buf_end =
+                    buf_no_net_get(&(oc.cols), sizeof(oc.cols), p_buf_end,
+                                   p_buf_end + sizeof(oc.cols));
                 p_buf_end = buf_no_net_get(&(oc.exprlist_len),
                                            sizeof(oc.exprlist_len), p_buf_end,
-                                           p_buf_end +
-                                           sizeof(oc.exprlist_len));
-                p_buf_end = buf_no_net_get(&(oc.where_len),
-                                           sizeof(oc.where_len), p_buf_end,
-                                           p_buf_end +
-                                           sizeof(oc.where_len));
-                oc.collist = (char *) p_buf_end;
-                oc.exprlist = oc.collist + oc.collist_len;
+                                           p_buf_end + sizeof(oc.exprlist_len));
+                p_buf_end =
+                    buf_no_net_get(&(oc.where_len), sizeof(oc.where_len),
+                                   p_buf_end, p_buf_end + sizeof(oc.where_len));
+                oc.exprlist = (char *)p_buf_end;
                 if (oc.where_len)
                     oc.where = oc.exprlist + oc.exprlist_len;
                 else
@@ -6663,10 +6647,9 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
                                 NULL,            /*nulls, no need as no
                                                    ctag2stag is called */
                                 blobs, MAXBLOBS, /*blobs*/
-                                &err->errcode, &err->ixnum,
-                                &rrn, &genid, /*new id*/
-                                dt.dk, BLOCK2_ADDKL, step,
-                                addflags, &oc);
+                                &err->errcode, &err->ixnum, &rrn,
+                                &genid, /*new id*/
+                                dt.dk, BLOCK2_ADDKL, step, addflags, &oc);
         }
 
         free_blob_buffers(blobs, MAXBLOBS);

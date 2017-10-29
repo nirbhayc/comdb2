@@ -617,7 +617,7 @@ void sqlite3Insert(
   sqlite3BeginWriteOperation(pParse, pSelect || pTrigger, iDb);
 
   /* Save the on conflict action. */
-  if (oc && !(db->onConflict = parseOnConflict(v, oc))) {
+  if (oc && !(db->onConflict = parseOnConflict(v, zTab, oc))) {
       sqlite3ErrorMsg(pParse, "'Row value' is currently not supported in "
                       "UPSERT");
       goto insert_cleanup;
@@ -696,6 +696,8 @@ void sqlite3Insert(
       }
     }
   }
+
+  /* TODO: Check columns validity here */
 
   /* Figure out how many columns of data are supplied.  If the data
   ** is coming from a SELECT statement, then generate a co-routine that
