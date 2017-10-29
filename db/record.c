@@ -1133,12 +1133,8 @@ int replace_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
                                     NULL, /* blobs */
                                     0,    /* maxblobs */
                                     &fndgenid, -1ULL, -1ULL,
-                                    &opfailcode, /* opfailcode */
-                                    &ixfailnum,  /* ixfailnum */
-                                    0,           /* opcode */
-                                    0,           /* blkpos */
-                                    0            /* flags */
-                                    );
+                                    &opfailcode, &ixfailnum, opcode, blkpos,
+                                    flags);
 
                     if (rc) {
                         logmsg(LOGMSG_ERROR, "%s: failed to update record", __func__);
@@ -2241,6 +2237,7 @@ int upd_record(struct ireq *iq, void *trans, void *primkey, int rrn,
             } else {
                 do_inline = 1;
             }
+            do_inline = 1;
             deferredAdd |= (!do_inline);
 
             if (!gbl_partial_indexes || !iq->usedb->ix_partial ||

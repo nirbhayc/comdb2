@@ -617,10 +617,15 @@ void sqlite3Insert(
   sqlite3BeginWriteOperation(pParse, pSelect || pTrigger, iDb);
 
   /* Save the on conflict action. */
-  if (oc && !(db->onConflict = parseOnConflict(v, zTab, oc))) {
-      sqlite3ErrorMsg(pParse, "'Row value' is currently not supported in "
-                      "UPSERT");
-      goto insert_cleanup;
+  if (oc) {
+     if (!(db->onConflict = parseOnConflict(v, zTab, oc))) {
+          sqlite3ErrorMsg(pParse, "'Row value' is currently not supported in "
+                          "UPSERT");
+          goto insert_cleanup;
+     }
+  } else {
+      /* TODO: Free the previous allocation properly */
+      db->onConflict = 0;
   }
 
 #ifndef SQLITE_OMIT_XFER_OPT

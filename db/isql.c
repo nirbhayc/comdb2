@@ -95,7 +95,7 @@ static int isql_fetch_row(sqlite3_stmt *stmt, int col_count, Mem *row)
 
     for (int i = 0; i < col_count; i++) {
         pTo = &row[i];
-        pFrom = sqlite3_column_value(stmt, 0);
+        pFrom = sqlite3_column_value(stmt, i);
         assert(pTo);
 
         memcpy(pTo, pFrom, MEMCELLSIZE);
