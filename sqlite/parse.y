@@ -908,6 +908,9 @@ onconf_opt(A) ::= ON CONFLICT onconf_act(X). { A = X; }
 onconf_act(A) ::= DO NOTHING. {
     A = comdb2OnConflictCreate(OE_Ignore, 0, 0);
 }
+onconf_act(A) ::= DO REPLACE. {
+    A = comdb2OnConflictCreate(OE_Replace, 0, 0);
+}
 onconf_act(A) ::= DO UPDATE SET setlist(L) where_opt(W). {
     A = comdb2OnConflictCreate(OE_Upsert, L, &W);
 }
