@@ -1151,6 +1151,7 @@ int replace_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
                                &failcode, ixfailnum, BLOCK2_DELKL, 0);
             } break;
             case 4 /* Ignore */:
+                goto err;
             case 1 /* Rollback */: /* fallthrough */
             case 2 /* Abort */:    /* fallthrough */
             case 3 /* Fail */:     /* fallthrough */

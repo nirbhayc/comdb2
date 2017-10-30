@@ -6608,7 +6608,7 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
             osql_set_delayed(iq);
         }
 
-        if (dt.flags != 5 /* Replace */ && dt.flags != 20 /* Upsert */) {
+        if (dt.flags == 0) {
             rc = add_record(iq, trans, tag_name_ondisk,
                             tag_name_ondisk + tag_name_ondisk_len, /*tag*/
                             pData, pData + dt.nData,               /*dta*/
