@@ -2291,9 +2291,18 @@ int process_command(struct dbenv *dbenv, char *line, int lline, int st)
             return -1;
         backend_cmd(dbenv, line, lline, st);
     } else if (tokcmp(tok, ltok, "flush") == 0) {
-        if (thedb->bdb_env == NULL)
+        tok = segtok(line, lline, &st, &ltok);
+        if (ltok == 0 || (tokcmp(tok, ltok, "db") == 0)) {
+            if (thedb->bdb_env == NULL)
+                return -1;
+            flush_db();
+        } else if (tokcmp(tok, ltok, "fingerprints") == 0) {
+            void flush_fingerprints(); /* forward declaration */
+            flush_fingerprints();
+        } else {
+            logmsg(LOGMSG_ERROR, "Invalid flush operation\n");
             return -1;
-        flush_db();
+        }
     } else if (tokcmp(tok, ltok, "ckp_sleep_before_sync") == 0) {
         /* Don't document the msgtrap -
            it is for debugging/testing only. */

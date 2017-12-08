@@ -22,6 +22,7 @@
 #endif
 
 #include <assert.h>
+#include <pthread.h>
 #include "comdb2systbl.h"
 #include "comdb2systblInt.h"
 #include "plhash.h"
@@ -29,6 +30,7 @@
 #include "util.h"
 
 extern hash_t *gbl_fingerprint_hash;
+extern pthread_mutex_t gbl_fingerprint_hash_mu;
 
 /*
   comdb2_fingerprints: List all statistics per query fingerprint.
@@ -94,7 +96,7 @@ static int systblFingerprintsOpen(sqlite3_vtab *p,
     }
     memset(cur, 0, sizeof(*cur));
 
-    /* TODO: Acquire the mutex. */
+    pthread_mutex_lock(&gbl_fingerprint_hash_mu);
 
     /* Fetch the first entry in the hash. */
     if (gbl_fingerprint_hash) {
@@ -109,7 +111,7 @@ static int systblFingerprintsOpen(sqlite3_vtab *p,
 static int systblFingerprintsClose(sqlite3_vtab_cursor *cur)
 {
     sqlite3_free(cur);
-    /* TODO: Release the mutex. */
+    pthread_mutex_unlock(&gbl_fingerprint_hash_mu);
     return SQLITE_OK;
 }
 

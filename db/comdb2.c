@@ -1381,6 +1381,8 @@ void clean_exit(void)
     cleanup_switches();
     free_gbl_tunables();
     free_tzdir();
+    void free_fingerprints(); /* forward declaration */
+    free_fingerprints();
     tz_hash_free();
     bdb_cleanup_private_blkseq(thedb->bdb_env);
 

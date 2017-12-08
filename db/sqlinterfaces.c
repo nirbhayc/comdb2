@@ -1592,6 +1592,37 @@ static void add_fingerprint(struct sqlclntstate *clnt, struct reqlogger *logger)
     pthread_mutex_unlock(&gbl_fingerprint_hash_mu);
 }
 
+void flush_fingerprints()
+{
+
+    pthread_mutex_lock(&gbl_fingerprint_hash_mu);
+    if (gbl_fingerprint_hash)
+    {
+        struct fingerprint_track *fingerprint;
+        void *ent;
+        unsigned int bkt;
+        fingerprint = (struct fingerprint_track *)
+            hash_first(gbl_fingerprint_hash, &ent, &bkt);
+
+        while(fingerprint) {
+            free(fingerprint);
+            fingerprint = (struct fingerprint_track *)
+                hash_next(gbl_fingerprint_hash, &ent, &bkt);
+        }
+        hash_clear(gbl_fingerprint_hash);
+    }
+    pthread_mutex_unlock(&gbl_fingerprint_hash_mu);
+}
+
+void free_fingerprints()
+{
+    if (gbl_fingerprint_hash) {
+        flush_fingerprints();
+        hash_free(gbl_fingerprint_hash);
+        gbl_fingerprint_hash = 0;
+    }
+}
+
 #include "reqlog_int.h"
 
 /* Save copy of sql statement and performance data.  If any other code
