@@ -101,8 +101,31 @@ static void fingerprintExpr(sqlite3 *db, MD5Context *c, Expr *p) {
     p->visited = 1;
 
     // printf("op %d flags %x iTable %d iColumn %d op2 %d\n", (int) p->op, p->flags, p->iTable, p->iColumn, (int) p->op2);
-    MD5Update(c, (const unsigned char*) &p->op, sizeof(u8));
-    MD5Update(c, (const unsigned char*) &p->flags, sizeof(u32));
+
+    /*
+      The operator and flag values are ignored for literals in order to
+      avoid having different fingerprints for queries differing only in
+      literal types. For instance, the following queries should have same
+      fingerprints.
+
+          SELECT 1
+          SELECT 'hello'
+
+      For all other types we hash their operators and flags, except for
+      identifiers, names of which are hashed instead of operator.
+    */
+    if(p->op == TK_STRING || p->op == TK_FLOAT || p->op == TK_INTEGER ){
+        /* Ignore the operator values for literals. */
+    } else if(p->op == TK_ID) {
+        /* Hash the name of the identifier. */
+        MD5Update(c, (const unsigned char*) p->u.zToken, strlen(p->u.zToken));
+        MD5Update(c, (const unsigned char*) &p->flags, sizeof(u32));
+    } else {
+        /* Hash the operator value. */
+        MD5Update(c, (const unsigned char*) &p->op, sizeof(u8));
+        MD5Update(c, (const unsigned char*) &p->flags, sizeof(u32));
+    }
+
     MD5Update(c, (const unsigned char*) &p->iTable, sizeof(int));
     MD5Update(c, (const unsigned char*) &p->iColumn, sizeof(ynVar));
     MD5Update(c, (const unsigned char*) &p->iAgg, sizeof(i16));
