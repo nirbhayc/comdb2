@@ -48,10 +48,9 @@ static int eventlog_enabled = 1;
 static int eventlog_detailed = 0;
 static int64_t bytes_written = 0;
 static int eventlog_verbose = 0;
-
 static gzFile eventlog = NULL;
-static pthread_mutex_t eventlog_lk = PTHREAD_MUTEX_INITIALIZER;
 static gzFile eventlog_open(void);
+static pthread_mutex_t eventlog_lk = PTHREAD_MUTEX_INITIALIZER;
 int eventlog_every_n = 1;
 int64_t eventlog_count = 0;
 
@@ -61,18 +60,13 @@ static void eventlog_roll(void);
 struct sqltrack {
     char fingerprint[FINGERPRINTSZ];
     char *sql;
-    LINKC_T(struct sqltrack) lnk;
 };
-
-LISTC_T(struct sqltrack) sql_statements;
-
 static hash_t *seen_sql;
 
 void eventlog_init()
 {
     seen_sql =
         hash_init_o(offsetof(struct sqltrack, fingerprint), FINGERPRINTSZ);
-    listc_init(&sql_statements, offsetof(struct sqltrack, lnk));
     if (eventlog_enabled) eventlog = eventlog_open();
 }
 
@@ -104,13 +98,6 @@ static void eventlog_close(void)
     gzclose(eventlog);
     eventlog = NULL;
     bytes_written = 0;
-    struct sqltrack *t = listc_rtl(&sql_statements);
-    while (t) {
-        hash_del(seen_sql, t);
-        free(t->sql);
-        free(t);
-        t = listc_rtl(&sql_statements);
-    }
     free_gbl_eventlog_fname();
 }
 
@@ -386,18 +373,18 @@ static void eventlog_add_int(cson_object *obj, const struct reqlogger *logger)
         return;
 
     bool isSql = logger->event_type && (strcmp(logger->event_type, "sql") == 0);
-    bool isSqlErr = logger->error && logger->stmt;
+    bool isSqlErr = logger->error && logger->clnt && logger->clnt->sql;
 
     pthread_mutex_lock(&eventlog_lk);
-    if ((isSql || isSqlErr) && !hash_find(seen_sql, logger->fingerprint)) {
+    if ((isSql || isSqlErr) && !hash_find(seen_sql, logger->clnt->fingerprint)) {
+        assert(logger->clnt);
         /* add never seen before "newsql" query, also print it to log */
         struct sqltrack *st;
         st = malloc(sizeof(struct sqltrack));
-        memcpy(st->fingerprint, logger->fingerprint,
-               sizeof(logger->fingerprint));
-        st->sql = strdup(logger->stmt);
+        memcpy(st->fingerprint, logger->clnt->fingerprint,
+               sizeof(logger->clnt->fingerprint));
+        st->sql = strdup(logger->clnt->sql);
         hash_add(seen_sql, st);
-        listc_abl(&sql_statements, st);
 
         cson_value *newval;
         cson_object *newobj;
@@ -408,10 +395,11 @@ static void eventlog_add_int(cson_object *obj, const struct reqlogger *logger)
         cson_object_set(newobj, "type",
                         cson_value_new_string("newsql", sizeof("newsql")));
         cson_object_set(newobj, "sql", cson_value_new_string(
-                                           logger->stmt, strlen(logger->stmt)));
+                                           logger->clnt->sql,
+                                           strlen(logger->clnt->sql)));
 
         char expanded_fp[2 * FINGERPRINTSZ + 1];
-        util_tohex(expanded_fp, logger->fingerprint, FINGERPRINTSZ);
+        util_tohex(expanded_fp, logger->clnt->fingerprint, FINGERPRINTSZ);
         cson_object_set(newobj, "fingerprint",
                         cson_value_new_string(expanded_fp, FINGERPRINTSZ * 2));
 
@@ -430,9 +418,10 @@ static void eventlog_add_int(cson_object *obj, const struct reqlogger *logger)
                         cson_value_new_string(logger->event_type,
                                               strlen(logger->event_type)));
 
-    if (logger->stmt && eventlog_detailed) {
+    if (logger->clnt->sql && eventlog_detailed) {
         cson_object_set(obj, "sql", cson_value_new_string(
-                                        logger->stmt, strlen(logger->stmt)));
+                                        logger->clnt->sql,
+                                        strlen(logger->clnt->sql)));
         cson_object_set(obj, "bound_parameters", logger->bound_param_cson);
     }
 
@@ -440,11 +429,11 @@ static void eventlog_add_int(cson_object *obj, const struct reqlogger *logger)
         cson_object_set(obj, "cnonce",
                         cson_value_new_string(logger->iq->snap_info.key,
                                               logger->iq->snap_info.keylen));
-    else if (logger->request != NULL &&
-             logger->request->has_cnonce) /* for sql*/
+    else if (logger->clnt->sql_query != NULL &&
+             logger->clnt->sql_query->has_cnonce) /* for sql*/
         cson_object_set(obj, "cnonce", cson_value_new_string(
-                                           (char *)logger->request->cnonce.data,
-                                           logger->request->cnonce.len));
+                                           (char *)logger->clnt->sql_query->cnonce.data,
+                                           logger->clnt->sql_query->cnonce.len));
 
     if (logger->have_id)
         cson_object_set(obj, "id",
@@ -466,9 +455,9 @@ static void eventlog_add_int(cson_object *obj, const struct reqlogger *logger)
     cson_object_set(obj, "host",
                     cson_value_new_string(gbl_mynode, strlen(gbl_mynode)));
 
-    if (logger->have_fingerprint) {
+    if (logger->clnt->fingerprint[0]) {
         char expanded_fp[2 * FINGERPRINTSZ + 1];
-        util_tohex(expanded_fp, logger->fingerprint, FINGERPRINTSZ);
+        util_tohex(expanded_fp, logger->clnt->fingerprint, FINGERPRINTSZ);
         cson_object_set(obj, "fingerprint",
                         cson_value_new_string(expanded_fp, FINGERPRINTSZ * 2));
     }

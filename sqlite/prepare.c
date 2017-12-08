@@ -607,6 +607,88 @@ void sqlite3ParserReset(Parse *pParse){
   }
 }
 
+/* COMDB2 MODIFICATION */
+/*
+  Normalize the input SQL statement by applying the following rules:
+
+  * Convert literals to '?'
+  * Remove consecutive spaces
+  * Remove trailing white spaces
+
+  Note: The internal queries on system tables are automatically ignored
+  and fingerprint isn't computed for them.
+*/
+static void normalize_query(Parse *pParse, const char *sql)
+{
+    struct Cdb2Token *token;
+    const char *src;
+    char *dest;
+    size_t src_sz;
+    size_t dest_sz;
+    size_t chunk_sz;
+    int i, j, k;
+    char *ptr;
+
+    /* Ignore queries for which fingerprints have not been computed. */
+    if (!pParse->db->fingerprint[0])
+        return;
+
+    src = sql;
+    src_sz = strlen(src);
+    dest = pParse->db->normalized_query;
+    dest_sz = sizeof(pParse->db->normalized_query) - 1;
+
+    LISTC_FOR_EACH(&pParse->token_list, token, lnk)
+    {
+        chunk_sz = MIN(dest_sz, (token->z - src));
+        memcpy(dest, src, chunk_sz);
+
+        src += chunk_sz + token->n;
+        dest += chunk_sz;
+        dest_sz -= chunk_sz;
+
+        if (dest_sz == 0)
+            goto done;
+
+        dest[0] = '?';
+        dest++;
+        dest_sz--;
+    }
+
+    chunk_sz = MIN(dest_sz, src_sz - (src - sql));
+    memcpy(dest, src, chunk_sz);
+    dest += chunk_sz;
+
+done:
+    dest[0] = 0; /* Null-terminate */
+
+    /* Remove all consecutive spaces */
+    ptr = pParse->db->normalized_query;
+    for (i = 0; ptr[i] != 0; i++) {
+        if (!isspace(ptr[i]))
+            continue;
+        j = i;
+        while (isspace(ptr[++j]))
+            ;
+
+        /* Remove all trailing spaces. */
+        if (!ptr[j]) {
+            ptr[i] = 0;
+            break;
+        }
+
+        /* The query mustn't have any leading spaces. */
+        k = i + 1; /* Move past the first of the consicutive spaces. */
+        while (ptr[j]) {
+            ptr[k++] = ptr[j++];
+        }
+        ptr[k] = 0;
+    }
+
+    logmsg(LOGMSG_DEBUG, "Normalized query : %s\n",
+           pParse->db->normalized_query);
+}
+
 /*
 ** Compile the UTF-8 encoded SQL statement zSql into a statement handle.
 */
@@ -628,6 +710,7 @@ static int sqlite3Prepare(
 
   if (db->should_fingerprint && !db->init.busy) {
       memset(db->fingerprint, 0, sizeof(db->fingerprint));
+      memset(db->normalized_query, 0, sizeof(db->normalized_query));
   }
 
   /* Allocate the parsing context */
@@ -679,6 +762,11 @@ static int sqlite3Prepare(
   sqlite3VtabUnlockList(db);
 
   sParse.db = db;
+
+  /* COMDB2 MODIFICATION */
+  /* Initialize the token list. */
+  listc_init(&sParse.token_list, offsetof(struct Cdb2Token, lnk));
+
   if( nBytes>=0 && (nBytes==0 || zSql[nBytes-1]!=0) ){
     char *zSqlCopy;
     int mxLen = db->aLimit[SQLITE_LIMIT_SQL_LENGTH];
@@ -700,6 +788,11 @@ static int sqlite3Prepare(
   }else{
     sqlite3RunParser(&sParse, zSql, &zErrMsg);
   }
+
+  /* COMDB2 MODIFICATION */
+  /* Normalize the query. */
+  normalize_query(&sParse, zSql);
+
   assert( 0==sParse.nQueryLoop );
 
   if( sParse.rc==SQLITE_DONE ) sParse.rc = SQLITE_OK;
@@ -942,6 +1035,14 @@ int sqlite3_fingerprint_size(sqlite3 *db) {
 
 const char *sqlite3_fingerprint(sqlite3 *db) {
     return db->fingerprint;
+}
+
+int sqlite3_normalized_query_size(sqlite3 *db) {
+    return sizeof(db->normalized_query);
+}
+
+const char *sqlite3_normalized_query(sqlite3 *db) {
+    return db->normalized_query;
 }
 
 int sqlite3_fingerprint_enable(sqlite3 *db) {

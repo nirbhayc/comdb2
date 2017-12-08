@@ -18,11 +18,13 @@ add_library(sqlite
   expr.c
   ext/comdb2/columns.c
   ext/comdb2/constraints.c
+  ext/comdb2/fingerprints.c
   ext/comdb2/keycomponents.c
   ext/comdb2/keys.c
   ext/comdb2/keywords.c
   ext/comdb2/limits.c
   ext/comdb2/procedures.c
+  ext/comdb2/statistics.c
   ext/comdb2/tablepermissions.c
   ext/comdb2/tables.c
   ext/comdb2/tables.c

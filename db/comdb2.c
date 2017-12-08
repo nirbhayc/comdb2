@@ -121,6 +121,7 @@ void berk_memp_sync_alarm_ms(int);
 #include "machine.h"
 #include "eventlog.h"
 #include "config.h"
+#include "statistics.h"
 
 #define COMDB2_ERRSTAT_ENABLED() 1
 #define COMDB2_DIFFSTAT_REPORT() 1
@@ -3157,6 +3158,9 @@ static int init(int argc, char **argv)
 
     handle_cmdline_options(argc, argv, &lrlname);
 
+    /* Initialize the statistics. */
+    init_statistics();
+
     if (gbl_create_mode) {        /*  10  */
         logmsg(LOGMSG_INFO, "create mode.\n");
         gbl_exit = 1;
@@ -4144,10 +4148,6 @@ extern int get_calls_per_sec(void);
 void reset_calls_per_sec(void);
 int throttle_lim = 10000;
 int cpu_throttle_threshold = 100000;
-
-#if 0
-void *pq_thread(void *);
-#endif
 
 void *statthd(void *p)
 {

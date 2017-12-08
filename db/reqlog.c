@@ -1016,10 +1016,6 @@ static void reqlog_free_all(struct reqlogger *logger)
         free(logger->error);
         logger->error = NULL;
     }
-    if (logger->stmt) {
-        free(logger->stmt);
-        logger->stmt = NULL;
-    }
 
     while ((event = logger->events) != NULL) {
         logger->events = event->next;
@@ -1388,9 +1384,9 @@ static void reqlog_start_request(struct reqlogger *logger)
         } else if (master_opcode_inv_list.num > 0 &&
                    check_list(&master_opcode_inv_list, logger->opcode)) {
             gather = 1;
-        } else if (logger->stmt && master_num_stmts > 0) {
+        } else if (logger->clnt && logger->clnt->sql && master_num_stmts > 0) {
             for (ii = 0; ii < master_num_stmts && ii < NUMSTMTS; ii++) {
-                if (strstr(logger->stmt, master_stmts[ii])) {
+                if (strstr(logger->clnt->sql, master_stmts[ii])) {
                     gather = 1;
                     break;
                 }
@@ -1416,7 +1412,7 @@ static void reqlog_start_request(struct reqlogger *logger)
 }
 
 /* Set up the request logger for a new regular request with an ireq. */
-void reqlog_new_request(struct ireq *iq)
+void reqlog_new_ireq_request(struct ireq *iq)
 {
     struct reqlogger *logger;
 
@@ -1437,29 +1433,29 @@ void reqlog_new_request(struct ireq *iq)
     reqlog_start_request(logger);
 }
 
-void reqlog_set_sql(struct reqlogger *logger, const char *sqlstmt)
+void reqlog_print_sql(struct reqlogger *logger)
 {
-    if (sqlstmt) {
-        if (logger->stmt) free(logger->stmt);
-        logger->stmt = strdup(sqlstmt);
-    }
-    if (logger->stmt) reqlog_logf(logger, REQL_INFO, "sql=%s", logger->stmt);
+    assert(logger->clnt);
+    assert(logger->clnt->sql);
+    reqlog_logf(logger, REQL_INFO, "sql=%s", logger->clnt->sql);
 }
 
-void reqlog_new_sql_request(struct reqlogger *logger, char *sqlstmt)
+void reqlog_new_sql_request(struct reqlogger *logger,
+                            struct sqlclntstate *clnt)
 {
     if (!logger) {
         return;
     }
+
     reqlog_reset_logger(logger);
     logger->request_type = "sql_request";
+    logger->clnt = clnt;
     logger->opcode = OP_SQL;
     logger->startus = time_epochus();
     reqlog_start_request(logger);
 
     logger->nsqlreqs = ATOMIC_LOAD(gbl_nnewsql);
-    if (sqlstmt)
-        reqlog_set_sql(logger, sqlstmt);
+    reqlog_print_sql(logger);
 }
 
 void reqlog_diffstat_init(struct reqlogger *logger)
@@ -1733,9 +1729,10 @@ void reqlog_end_request(struct reqlogger *logger, int rc, const char *callfunc,
 
     /* If fingerprinting is enabled and the logger has a fingerprint,
        log the fingerprint as well. */
-    if (gbl_fingerprint_queries && logger->have_fingerprint) {
+    if (gbl_fingerprint_queries && logger->clnt &&
+        logger->clnt->fingerprint[0]) {
         char hexfp[FINGERPRINTSZ << 1];
-        if (reqlog_fingerprint_to_hex(logger, hexfp, FINGERPRINTSZ << 1) > 0)
+        if (util_tohex(hexfp, logger->clnt->fingerprint, FINGERPRINTSZ << 1) > 0)
             reqlog_logf(logger, REQL_INFO, "fingerprint=%.*s",
                         FINGERPRINTSZ << 1, hexfp);
     }
@@ -1792,7 +1789,7 @@ void reqlog_end_request(struct reqlogger *logger, int rc, const char *callfunc,
             }
 
             if (rule->stmt[0] &&
-                (!logger->stmt || !strstr(logger->stmt, rule->stmt))) {
+                (!logger->clnt->sql || !strstr(logger->clnt->sql, rule->stmt))) {
                 continue;
             }
 
@@ -1941,7 +1938,6 @@ void reqlog_end_request(struct reqlogger *logger, int rc, const char *callfunc,
         osql_bplog_free(logger->iq, 1, __func__, callfunc, line);
     }
     logger->have_id = 0;
-    logger->have_fingerprint = 0;
     logger->error_code = 0;
 }
 
@@ -2302,22 +2298,6 @@ void reqlog_set_queue_time(struct reqlogger *logger, uint64_t timeus)
     if (logger) logger->queuetimeus = timeus;
 }
 
-void reqlog_set_fingerprint(struct reqlogger *logger, const char *fingerprint,
-                            size_t n)
-{
-    size_t min;
-    if (logger == NULL)
-        return;
-    min = (FINGERPRINTSZ < n) ? FINGERPRINTSZ : n;
-    memcpy(logger->fingerprint, fingerprint, min);
-    logger->have_fingerprint = 1;
-}
-
-void reqlog_set_request(struct reqlogger *logger, CDB2SQLQUERY *request)
-{
-    logger->request = request;
-}
-
 void reqlog_set_event(struct reqlogger *logger, const char *evtype)
 {
     logger->event_type = evtype;
@@ -2349,27 +2329,4 @@ void reqlog_set_context(struct reqlogger *logger, int ncontext, char **context)
 {
     logger->ncontext = ncontext;
     logger->context = context;
-}
-
-int reqlog_fingerprint_to_hex(struct reqlogger *logger, char *hexstr, size_t n)
-{
-    static const char hex[] = "0123456789abcdef";
-    size_t i, len;
-
-    if (!gbl_fingerprint_queries)
-        return 0;
-
-    if (n & 1)
-        return 0;
-
-    if (logger == NULL)
-        return 0;
-
-    for (i = 0, len = ((n >> 1) < FINGERPRINTSZ) ? (n >> 1) : FINGERPRINTSZ;
-         i != len; ++i) {
-        hexstr[i << 1] = hex[(logger->fingerprint[i] & 0xf0) >> 4];
-        hexstr[(i << 1) + 1] = hex[logger->fingerprint[i] & 0x0f];
-    }
-
-    return (i << 1);
 }

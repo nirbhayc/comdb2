@@ -193,6 +193,23 @@ static void fingerprintSelectInt(sqlite3 *db, MD5Context *c, Select *p) {
     fingerprintWith(db, c, p->pWith);
 }
 
+static void MD5Final_int(sqlite3 *db, MD5Context *c) {
+    /* Ensure we aren't overwriting an existing fingerprint. */
+    assert(!db->fingerprint[0]);
+
+    /* We mustn't be here if this isn't set. */
+    assert(db->should_fingerprint);
+
+    /*
+      Play safe! Reset db->should_fingerprint to avoid it being
+      overwritten by fingerprints computed for internal queries
+      against system tables.
+    */
+    db->should_fingerprint = 0;
+
+    MD5Final((unsigned char *)db->fingerprint, c);
+}
+
 /* This is just like clearSelect, except we recursively checksum all
    the components instead of freeing them. */
 void sqlite3FingerprintSelect(sqlite3 *db, Select *p) {
@@ -203,7 +220,7 @@ void sqlite3FingerprintSelect(sqlite3 *db, Select *p) {
 
     MD5Init(&c);
     fingerprintSelectInt(db, &c, p);
-    MD5Final((unsigned char *)db->fingerprint, &c);
+    MD5Final_int(db, &c);
 }
 
 static void fingerprintWith(sqlite3 *db, MD5Context *c, With *pWith) {
@@ -227,9 +244,13 @@ static void fingerprintInsertInt(sqlite3 *db, MD5Context *c, SrcList *pTabList, 
 
 #include <fsnapf.h>
 
-/* Why isn't this in insert.c?  Because Insert doesn't introduce any new structures 
-   that aren't already processed here */
-void sqlite3FingerprintInsert(sqlite3 *db, SrcList *pTabList, Select *pSelect, IdList *pColumn, With *pWith) {
+/*
+  Why isn't this in insert.c?  Because Insert doesn't introduce
+  any new structures that aren't already processed here
+*/
+void sqlite3FingerprintInsert(sqlite3 *db, SrcList *pTabList,
+                              Select *pSelect, IdList *pColumn,
+                              With *pWith) {
     MD5Context c;
 
     if (!db->should_fingerprint || db->init.busy)
@@ -237,7 +258,7 @@ void sqlite3FingerprintInsert(sqlite3 *db, SrcList *pTabList, Select *pSelect, I
 
     MD5Init(&c);
     fingerprintInsertInt(db, &c, pTabList, pSelect, pColumn, pWith);
-    MD5Final((unsigned char *)db->fingerprint, &c);
+    MD5Final_int(db, &c);
 }
 
 void sqlite3FingerprintDelete(sqlite3 *db, SrcList *pTabList, Expr *pWhere) {
@@ -249,10 +270,12 @@ void sqlite3FingerprintDelete(sqlite3 *db, SrcList *pTabList, Expr *pWhere) {
     MD5Init(&c);
     fingerprintSrcList(db, &c, pTabList);
     fingerprintExpr(db, &c, pWhere);
-    MD5Final((unsigned char *)db->fingerprint, &c);
+    MD5Final_int(db, &c);
 }
 
-void sqlite3FingerprintUpdate(sqlite3 *db, SrcList *pTabList, ExprList *pChanges, Expr *pWhere, int onError) {
+void sqlite3FingerprintUpdate(sqlite3 *db, SrcList *pTabList,
+                              ExprList *pChanges, Expr *pWhere,
+                              int onError) {
     MD5Context c;
 
     if (!db->should_fingerprint || db->init.busy)
@@ -263,9 +286,8 @@ void sqlite3FingerprintUpdate(sqlite3 *db, SrcList *pTabList, ExprList *pChanges
     fingerprintExprList(db, &c, pChanges);
     fingerprintExpr(db, &c, pWhere);
     MD5Update(&c, (u8*) &onError, sizeof(int));
-    MD5Final((unsigned char *)db->fingerprint, &c);
+    MD5Final_int(db, &c);
 }
-
 
 /*
 ** Delete all the content of a Select structure.  Deallocate the structure

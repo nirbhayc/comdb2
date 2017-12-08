@@ -91,13 +91,11 @@ struct reqlogger {
     int opcode;
 
     struct ireq *iq;
+    struct sqlclntstate *clnt;
 
     /* singly linked list of all the stuff we've logged */
     struct logevent *events;
     struct logevent *last_event;
-
-    /* the sql statement */
-    char *stmt;
 
     /* the bound parameters */
     cson_value *bound_param_cson;
@@ -110,13 +108,9 @@ struct reqlogger {
     uint64_t durationus;
     int vreplays;
     uint64_t queuetimeus;
-    char fingerprint[FINGERPRINTSZ];
-    int have_fingerprint;
     char id[41];
     int have_id;
     const char *event_type;
-
-    CDB2SQLQUERY *request;
 
     int ntables;
     int alloctables;

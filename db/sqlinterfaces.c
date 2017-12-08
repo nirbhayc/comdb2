@@ -1544,6 +1544,56 @@ static void clear_cost(struct sql_thread *thd)
     }
 }
 
+hash_t *gbl_fingerprint_hash;
+pthread_mutex_t gbl_fingerprint_hash_mu = PTHREAD_MUTEX_INITIALIZER;
+
+static void set_fingerprint(struct sqlclntstate *clnt, const char *fingerprint,
+                            size_t n, const char *normalized_query,
+                            size_t normalized_query_size)
+{
+    size_t min;
+
+    assert(clnt);
+
+    if (!fingerprint[0]) {
+        return;
+    }
+
+
+    min = (FINGERPRINTSZ < n) ? FINGERPRINTSZ : n;
+    memcpy(clnt->fingerprint, fingerprint, min);
+    memcpy(clnt->normalized_query, normalized_query, normalized_query_size);
+}
+
+static void add_fingerprint(struct sqlclntstate *clnt, struct reqlogger *logger)
+{
+    struct fingerprint_track *t;
+
+    if (!clnt->fingerprint[0])
+        return;
+
+    pthread_mutex_lock(&gbl_fingerprint_hash_mu);
+    if (gbl_fingerprint_hash == NULL)
+        gbl_fingerprint_hash = hash_init(FINGERPRINTSZ);
+    t = hash_find(gbl_fingerprint_hash, clnt->fingerprint);
+    if (t == NULL) {
+        t = malloc(sizeof(struct fingerprint_track));
+        memcpy(t->fingerprint, clnt->fingerprint, FINGERPRINTSZ);
+        t->count = 1;
+        t->cost = clnt->query_stats->cost;
+        t->time = reqlog_current_us(logger);
+        strcpy(t->normalized_query, clnt->normalized_query);
+        hash_add(gbl_fingerprint_hash, t);
+    } else {
+        t->count++;
+        t->cost += clnt->query_stats->cost;
+        t->time += reqlog_current_us(logger);
+    }
+    pthread_mutex_unlock(&gbl_fingerprint_hash_mu);
+}
+
+#include "reqlog_int.h"
+
 /* Save copy of sql statement and performance data.  If any other code
    should run after a sql statement is completed it should end up here. */
 static void sql_statement_done(struct sql_thread *thd, struct reqlogger *logger,
@@ -1603,6 +1653,10 @@ static void sql_statement_done(struct sql_thread *thd, struct reqlogger *logger,
 
     if (clnt->saved_rc)
         reqlog_set_error(logger, clnt->saved_errstr, clnt->saved_rc);
+
+    if (gbl_fingerprint_queries && clnt->query_stats) {
+        add_fingerprint(clnt, logger);
+    }
 
     reqlog_set_rows(logger, clnt->nrows);
     reqlog_end_request(logger, stmt_rc, __func__, __LINE__);
@@ -2017,7 +2071,7 @@ int handle_sql_begin(struct sqlthdstate *thd, struct sqlclntstate *clnt,
     pthread_mutex_lock(&clnt->wait_mutex);
     clnt->ready_for_heartbeats = 0;
 
-    reqlog_new_sql_request(thd->logger, clnt->sql);
+    reqlog_new_sql_request(thd->logger, clnt);
     log_queue_time(thd->logger, clnt);
 
     /* this is a good "begin", just say "ok" */
@@ -2084,7 +2138,7 @@ static int handle_sql_wrongstate(struct sqlthdstate *thd,
 
     sql_set_sqlengine_state(clnt, __FILE__, __LINE__, SQLENG_NORMAL_PROCESS);
 
-    reqlog_new_sql_request(thd->logger, clnt->sql);
+    reqlog_new_sql_request(thd->logger, clnt);
     log_queue_time(thd->logger, clnt);
 
     reqlog_logf(thd->logger, REQL_QUERY,
@@ -2195,7 +2249,7 @@ int handle_sql_commitrollback(struct sqlthdstate *thd,
     uint8_t *p_buf_colinfo_end = (p_buf_colinfo + COLUMN_INFO_LEN);
     int outrc = 0;
 
-    reqlog_new_sql_request(thd->logger, clnt->sql);
+    reqlog_new_sql_request(thd->logger, clnt);
     log_queue_time(thd->logger, clnt);
 
     int64_t rows = clnt->log_effects.num_updated +
@@ -3661,7 +3715,7 @@ static void setup_reqlog_new_sql(struct sqlthdstate *thd,
         thrman_wheref(thd->thr_self, "%s sql: %s", info_nvreplays, clnt->sql);
     }
 
-    reqlog_new_sql_request(thd->logger, NULL);
+    reqlog_new_sql_request(thd->logger, clnt);
     log_client_context(thd->logger, clnt);
     log_queue_time(thd->logger, clnt);
 }
@@ -3714,9 +3768,6 @@ static void query_stats_setup(struct sqlthdstate *thd,
 
     if (gbl_dump_sql_dispatched)
         logmsg(LOGMSG_USER, "SQL mode=%d [%s]\n", clnt->dbtran.mode, clnt->sql);
-
-    if (clnt->sql_query)
-        reqlog_set_request(thd->logger, clnt->sql_query);
 }
 
 static void get_cached_stmt(struct sqlthdstate *thd, struct sqlclntstate *clnt,
@@ -4131,8 +4182,6 @@ static int get_prepared_stmt_int(struct sqlthdstate *thd,
     query_stats_setup(thd, clnt);
     get_cached_stmt(thd, clnt, rec);
 
-    if (rec->sql)
-        reqlog_set_sql(thd->logger, rec->sql);
     const char *tail = NULL;
     while (rec->stmt == NULL) {
         clnt->no_transaction = 1;
@@ -4158,9 +4207,12 @@ static int get_prepared_stmt_int(struct sqlthdstate *thd,
         rc = FSQL_PREPARE;
     }
     if (gbl_fingerprint_queries) {
-        reqlog_set_fingerprint(thd->logger, sqlite3_fingerprint(thd->sqldb),
-                               sqlite3_fingerprint_size(thd->sqldb));
+        set_fingerprint(clnt, sqlite3_fingerprint(thd->sqldb),
+                        sqlite3_fingerprint_size(thd->sqldb),
+                        sqlite3_normalized_query(thd->sqldb),
+                        sqlite3_normalized_query_size(thd->sqldb));
     }
+
     if (rc) {
         _prepare_error(thd, clnt, rec, rc, err);
     } else {
@@ -8794,7 +8846,7 @@ static int execute_sql_query_offload(struct sqlthdstate *poolthd,
         logmsg(LOGMSG_ERROR, "%s: no sql_thread\n", __func__);
         return SQLITE_INTERNAL;
     }
-    reqlog_new_sql_request(poolthd->logger, clnt->sql);
+    reqlog_new_sql_request(poolthd->logger, clnt);
     log_queue_time(poolthd->logger, clnt);
     bzero(&clnt->fail_reason, sizeof(clnt->fail_reason));
     bzero(&clnt->osql.xerr, sizeof(clnt->osql.xerr));

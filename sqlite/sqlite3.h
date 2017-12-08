@@ -10482,6 +10482,8 @@ SQLITE_API const char * SQLITE_STDCALL sqlite3_fingerprint(sqlite3*);
 SQLITE_API int SQLITE_STDCALL sqlite3_fingerprint_size(sqlite3*);
 SQLITE_API int SQLITE_STDCALL sqlite3_fingerprint_enable(sqlite3*);
 SQLITE_API int SQLITE_STDCALL sqlite3_fingerprint_disable(sqlite3*);
+SQLITE_API const char * SQLITE_STDCALL sqlite3_normalized_query(sqlite3*);
+SQLITE_API int SQLITE_STDCALL sqlite3_normalized_query_size(sqlite3*);
 
 
 #ifdef __cplusplus

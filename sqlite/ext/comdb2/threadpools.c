@@ -77,7 +77,7 @@ static int systblThreadPoolsConnect(sqlite3 *db, void *pAux, int argc,
     int rc;
 
     rc = sqlite3_declare_vtab(
-        db, "CREATE TABLE comdb2_pools(\"name\", \"status\", \"num_thd\", "
+        db, "CREATE TABLE comdb2_threadpools(\"name\", \"status\", \"num_thd\","
             "\"free_thd\", \"peak_thd\", \"num_creates\", \"num_exits\", "
             "\"num_passed\", \"num_enqueued\", \"num_dequeued\", "
             "\"num_timeout\", \"num_failed_dispatches\", \"min_thds\", "

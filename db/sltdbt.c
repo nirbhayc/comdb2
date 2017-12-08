@@ -328,7 +328,7 @@ int handle_ireq(struct ireq *iq)
     reqerrstrclr(iq);
 
     /* new request and record the basic opcode */
-    reqlog_new_request(iq);
+    reqlog_new_ireq_request(iq);
     reqlog_logl(iq->reqlogger, REQL_INFO, req2a(iq->opcode));
     reqlog_pushprefixf(iq->reqlogger, "%s:REQ %s ", getorigin(iq),
                        req2a(iq->opcode));

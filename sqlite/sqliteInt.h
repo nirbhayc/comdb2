@@ -19,6 +19,7 @@
 #include <cheapstack.h>
 #include "tunables.h"
 #include "fwd_types.h"
+#include "list.h"
 
 #undef debug_raw
 /* Special Comments:
@@ -1403,9 +1404,12 @@ struct sqlite3 {
 #endif
 
   /* COMDB2 MODIFICATION */
-  u8 isExpert;              /* If analyze is done using sqlite expert */
-  u8 should_fingerprint;
-  char fingerprint[16];              /* Figerprint of the last query that was prepared */
+  u8 isExpert;                /* If analyze is done using sqlite expert */
+  u8 should_fingerprint;      /* Whether to calculate the fingerprint and
+                                 normalize the query? */
+  char fingerprint[16];       /* Figerprint of the last query that was prepared */
+  char normalized_query[120]; /* Normalized query (could have possibly been
+                                 truncated) */
 };
 
 /*
@@ -3064,6 +3068,8 @@ struct Parse {
   With *pWithToFree;        /* Free this WITH object at the end of the parse */
   u8 write;                 /* Flag to indicate write transaction during sqlite3FinishCoding */
   Cdb2DDL *comdb2_ddl_ctx;  /* Context for DDL commands */
+  LISTC_T(struct Cdb2Token) token_list; /* List of tokens to mask to form normalized query. */
+  char normalized_query[100];    /* Normalized query */
 };
 
 /* COMDB2 MODIFICATION */
@@ -4484,6 +4490,12 @@ struct Cdb2TrigTables {
   Cdb2TrigEvents *events;
   Cdb2TrigTables *next;
 };
+struct Cdb2Token {
+    const char *z;  /* Pointer to the token. */
+    unsigned int n; /* Number of characters in the token. */
+    LINKC_T(struct Cdb2Token) lnk;
+};
+
 Cdb2TrigEvents *comdb2AddTriggerEvent(Parse*,Cdb2TrigEvents*,Cdb2TrigEvent*);
 void comdb2DropTrigger(Parse*,Token*);
 Cdb2TrigTables *comdb2AddTriggerTable(Parse*,Cdb2TrigTables*,SrcList*,Cdb2TrigEvents*);

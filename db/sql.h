@@ -505,7 +505,6 @@ struct sqlclntstate {
     int8_t gen_changed;
     uint8_t skip_peer_chk;
 
-    char fingerprint[FINGERPRINTSZ];
     int ncontext;
     char **context;
 
@@ -516,6 +515,10 @@ struct sqlclntstate {
     int statement_query_effects;
 
     int verify_remote_schemas;
+
+    /* Fingerprint of the last executed statement. */
+    char fingerprint[FINGERPRINTSZ];
+    char normalized_query[100];
 };
 
 /* Query stats. */
@@ -854,4 +857,12 @@ void put_prepared_stmt(struct sqlthdstate *, struct sqlclntstate *,
                        struct sql_state *, int outrc);
 void sqlengine_thd_start(struct thdpool *, struct sqlthdstate *, enum thrtype);
 void sqlengine_thd_end(struct thdpool *, struct sqlthdstate *);
+
+struct fingerprint_track {
+    unsigned char fingerprint[FINGERPRINTSZ];
+    int64_t count;
+    int64_t cost; /* Cumulative cost */
+    int64_t time; /* Cumulative execution time */
+    char normalized_query[100];
+};
 #endif

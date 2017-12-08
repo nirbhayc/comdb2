@@ -287,6 +287,22 @@ typename(A) ::= typename(A) ids(Y). {A.n=Y.n+(int)(Y.z-A.z);}
 signed ::= plus_num.
 signed ::= minus_num.
 
+%include {
+  static void addToken(Parse *pParse, Token *t)
+  {
+      struct Cdb2Token *token;
+
+      if (!pParse->db->should_fingerprint)
+          return;
+
+      /* Add the token to the list. */
+      token = sqlite3DbMallocZero(pParse->db, sizeof(struct Cdb2Token));
+      token->z = t->z;
+      token->n = t->n;
+      listc_abl(&pParse->token_list, token);
+  }
+} // end %include
+
 // "carglist" is a list of additional constraints that come after the
 // column name and column type in a CREATE|ALTER TABLE statement.
 //
@@ -956,15 +972,23 @@ expr(A) ::= nm(X) DOT nm(Y) DOT nm(Z). {
   spanSet(&A,&X,&Z); /*A-overwrites-X*/
   A.pExpr = sqlite3PExpr(pParse, TK_DOT, temp1, temp4, 0);
 }
-term(A) ::= FLOAT|BLOB(X). {spanExpr(&A,pParse,@X,X);/*A-overwrites-X*/}
-term(A) ::= STRING(X).     {spanExpr(&A,pParse,@X,X);/*A-overwrites-X*/}
+term(A) ::= FLOAT|BLOB(X). {
+    addToken(pParse, &X);
+    spanExpr(&A,pParse,@X,X);/*A-overwrites-X*/
+}
+term(A) ::= STRING(X). {
+    addToken(pParse, &X);
+    spanExpr(&A,pParse,@X,X);/*A-overwrites-X*/
+}
 term(A) ::= INTEGER(X). {
+  addToken(pParse, &X);
   A.pExpr = sqlite3ExprAlloc(pParse->db, TK_INTEGER, &X, 1);
   A.zStart = X.z;
   A.zEnd = X.z + X.n;
   if( A.pExpr ) A.pExpr->flags |= EP_Leaf;
 }
 expr(A) ::= VARIABLE(X).     {
+  addToken(pParse, &X);
   if( !(X.z[0]=='#' && sqlite3Isdigit(X.z[1])) ){
     u32 n = X.n;
     spanExpr(&A, pParse, TK_VARIABLE, X);
