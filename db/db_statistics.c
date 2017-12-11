@@ -42,9 +42,9 @@ struct comdb2_statistics_store gbl_stats;
   Please keep'em sorted.
 */
 comdb2_statistic gbl_statistics[] = {
-    {"bpool_hits", "Buffer pool hits", STATISTIC_INTEGER, &gbl_stats.bpool_hits,
+    {"cache_hits", "Cache hits", STATISTIC_INTEGER, &gbl_stats.bpool_hits,
      NULL},
-    {"bpool_misses", "Buffer pool misses", STATISTIC_INTEGER,
+    {"cache_misses", "Cache misses", STATISTIC_INTEGER,
      &gbl_stats.bpool_misses, NULL},
     {"commits", "Number of commits", STATISTIC_INTEGER, &gbl_stats.commits,
      NULL},
