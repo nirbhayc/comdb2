@@ -518,7 +518,7 @@ struct sqlclntstate {
 
     /* Fingerprint of the last executed statement. */
     char fingerprint[FINGERPRINTSZ];
-    char normalized_query[100];
+    char normalized_sql[100];
 };
 
 /* Query stats. */
@@ -863,6 +863,6 @@ struct fingerprint_track {
     int64_t count;
     int64_t cost; /* Cumulative cost */
     int64_t time; /* Cumulative execution time */
-    char normalized_query[100];
+    char normalized_sql[100];
 };
 #endif

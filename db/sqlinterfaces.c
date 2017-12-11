@@ -1548,8 +1548,8 @@ hash_t *gbl_fingerprint_hash;
 pthread_mutex_t gbl_fingerprint_hash_mu = PTHREAD_MUTEX_INITIALIZER;
 
 static void set_fingerprint(struct sqlclntstate *clnt, const char *fingerprint,
-                            size_t n, const char *normalized_query,
-                            size_t normalized_query_size)
+                            size_t n, const char *normalized_sql,
+                            size_t normalized_sql_size)
 {
     size_t min;
 
@@ -1562,7 +1562,7 @@ static void set_fingerprint(struct sqlclntstate *clnt, const char *fingerprint,
 
     min = (FINGERPRINTSZ < n) ? FINGERPRINTSZ : n;
     memcpy(clnt->fingerprint, fingerprint, min);
-    memcpy(clnt->normalized_query, normalized_query, normalized_query_size);
+    memcpy(clnt->normalized_sql, normalized_sql, normalized_sql_size);
 }
 
 static void add_fingerprint(struct sqlclntstate *clnt, struct reqlogger *logger)
@@ -1582,7 +1582,7 @@ static void add_fingerprint(struct sqlclntstate *clnt, struct reqlogger *logger)
         t->count = 1;
         t->cost = clnt->query_stats->cost;
         t->time = reqlog_current_us(logger);
-        strcpy(t->normalized_query, clnt->normalized_query);
+        strcpy(t->normalized_sql, clnt->normalized_sql);
         hash_add(gbl_fingerprint_hash, t);
     } else {
         t->count++;
@@ -4240,8 +4240,8 @@ static int get_prepared_stmt_int(struct sqlthdstate *thd,
     if (gbl_fingerprint_queries) {
         set_fingerprint(clnt, sqlite3_fingerprint(thd->sqldb),
                         sqlite3_fingerprint_size(thd->sqldb),
-                        sqlite3_normalized_query(thd->sqldb),
-                        sqlite3_normalized_query_size(thd->sqldb));
+                        sqlite3_normalized_sql(thd->sqldb),
+                        sqlite3_normalized_sql_size(thd->sqldb));
     }
 
     if (rc) {

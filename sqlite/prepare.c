@@ -635,8 +635,8 @@ static void normalize_query(Parse *pParse, const char *sql)
 
     src = sql;
     src_sz = strlen(src);
-    dest = pParse->db->normalized_query;
-    dest_sz = sizeof(pParse->db->normalized_query) - 1;
+    dest = pParse->db->normalized_sql;
+    dest_sz = sizeof(pParse->db->normalized_sql) - 1;
 
     LISTC_FOR_EACH(&pParse->token_list, token, lnk)
     {
@@ -663,7 +663,7 @@ done:
     dest[0] = 0; /* Null-terminate */
 
     /* Remove all consecutive spaces */
-    ptr = pParse->db->normalized_query;
+    ptr = pParse->db->normalized_sql;
     for (i = 0; ptr[i] != 0; i++) {
         if (!isspace(ptr[i]))
             continue;
@@ -686,7 +686,7 @@ done:
     }
 
     logmsg(LOGMSG_DEBUG, "Normalized query : %s\n",
-           pParse->db->normalized_query);
+           pParse->db->normalized_sql);
 }
 
 /*
@@ -710,7 +710,7 @@ static int sqlite3Prepare(
 
   if (db->should_fingerprint && !db->init.busy) {
       memset(db->fingerprint, 0, sizeof(db->fingerprint));
-      memset(db->normalized_query, 0, sizeof(db->normalized_query));
+      memset(db->normalized_sql, 0, sizeof(db->normalized_sql));
   }
 
   /* Allocate the parsing context */
@@ -1037,12 +1037,12 @@ const char *sqlite3_fingerprint(sqlite3 *db) {
     return db->fingerprint;
 }
 
-int sqlite3_normalized_query_size(sqlite3 *db) {
-    return sizeof(db->normalized_query);
+int sqlite3_normalized_sql_size(sqlite3 *db) {
+    return sizeof(db->normalized_sql);
 }
 
-const char *sqlite3_normalized_query(sqlite3 *db) {
-    return db->normalized_query;
+const char *sqlite3_normalized_sql(sqlite3 *db) {
+    return db->normalized_sql;
 }
 
 int sqlite3_fingerprint_enable(sqlite3 *db) {

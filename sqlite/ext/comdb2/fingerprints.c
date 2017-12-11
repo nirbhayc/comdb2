@@ -169,7 +169,7 @@ static int systblFingerprintsColumn(sqlite3_vtab_cursor *cur,
         sqlite3_result_int64(ctx, fingerprint->time);
         break;
     case COLUMN_NORMALIZED_SQL:
-        sqlite3_result_text(ctx, fingerprint->normalized_query, -1, NULL);
+        sqlite3_result_text(ctx, fingerprint->normalized_sql, -1, NULL);
         break;
     default:
         assert(0);

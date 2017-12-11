@@ -1408,7 +1408,7 @@ struct sqlite3 {
   u8 should_fingerprint;      /* Whether to calculate the fingerprint and
                                  normalize the query? */
   char fingerprint[16];       /* Figerprint of the last query that was prepared */
-  char normalized_query[120]; /* Normalized query (could have possibly been
+  char normalized_sql[120]; /* Normalized query (could have possibly been
                                  truncated) */
 };
 
@@ -3069,7 +3069,7 @@ struct Parse {
   u8 write;                 /* Flag to indicate write transaction during sqlite3FinishCoding */
   Cdb2DDL *comdb2_ddl_ctx;  /* Context for DDL commands */
   LISTC_T(struct Cdb2Token) token_list; /* List of tokens to mask to form normalized query. */
-  char normalized_query[100];    /* Normalized query */
+  char normalized_sql[100];    /* Normalized query */
 };
 
 /* COMDB2 MODIFICATION */
