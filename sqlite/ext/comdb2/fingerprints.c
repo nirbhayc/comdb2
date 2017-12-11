@@ -62,7 +62,7 @@ static int systblFingerprintsConnect(sqlite3 *db, void *pAux, int argc,
 
     rc = sqlite3_declare_vtab(
         db, "CREATE TABLE comdb2_fingerprints(\"fingerprint\", \"count\", "
-            "\"total_cost\", \"total_time\", \"normalized_sql\")");
+            "\"total_cost\", \"total_time_us\", \"normalized_sql\")");
 
     if (rc == SQLITE_OK) {
         if ((*ppVtab = sqlite3_malloc(sizeof(sqlite3_vtab))) == 0) {
