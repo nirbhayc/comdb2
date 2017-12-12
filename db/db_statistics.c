@@ -162,9 +162,9 @@ const char *statistic_type(comdb2_statistic_type type)
     }
 }
 
-comdb2_host_stat *get_net_host_stats(bdb_state_type *bdb_state,
-                                     netinfo_type *netinfo_ptr,
-                                     void *(*alloc_)(int), int *count)
+comdb2_host_stat *get_host_stats(bdb_state_type *bdb_state,
+                                 netinfo_type *netinfo_ptr,
+                                 void *(*alloc_)(int), int *count)
 {
 
     comdb2_host_stat *stats;
@@ -207,7 +207,7 @@ comdb2_host_stat *get_net_host_stats(bdb_state_type *bdb_state,
     return stats;
 }
 
-void free_net_host_stats(comdb2_host_stat *stats, void (*free_)(void *))
+void free_host_stats(comdb2_host_stat *stats, void (*free_)(void *))
 {
     free_(stats);
 }

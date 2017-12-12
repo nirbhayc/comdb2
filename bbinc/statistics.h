@@ -75,9 +75,9 @@ typedef struct comdb2_host_stat {
     double avg_wait_over_1min;
 } comdb2_host_stat;
 
-comdb2_host_stat *get_net_host_stats(bdb_state_type *bdb_state,
-                                     netinfo_type *netinfo_ptr,
-                                     void *(*alloc_)(int), int *count);
-void free_net_host_stats(comdb2_host_stat *stats, void (*free_)(void *));
+comdb2_host_stat *get_host_stats(bdb_state_type *bdb_state,
+                                 netinfo_type *netinfo_ptr,
+                                 void *(*alloc_)(int), int *count);
+void free_host_stats(comdb2_host_stat *stats, void (*free_)(void *));
 
 #endif /* _STATISTICS_H */

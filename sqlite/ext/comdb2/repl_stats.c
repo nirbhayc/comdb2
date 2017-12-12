@@ -98,8 +98,8 @@ static int systblReplStatsOpen(sqlite3_vtab *p, sqlite3_vtab_cursor **ppCursor)
     if (thedb->exiting || thedb->stopped)
         return SQLITE_INTERNAL;
 
-    cur->stats = get_net_host_stats(thedb->bdb_env, thedb->handle_sibling,
-                                    sqlite3_malloc, &cluster_size);
+    cur->stats = get_host_stats(thedb->bdb_env, thedb->handle_sibling,
+                                sqlite3_malloc, &cluster_size);
     if (!cur->stats)
         return SQLITE_INTERNAL;
 
@@ -113,7 +113,7 @@ static int systblReplStatsClose(sqlite3_vtab_cursor *cur)
 {
 
     systbl_repl_stats_cursor *pCur = (systbl_repl_stats_cursor *)cur;
-    free_net_host_stats(pCur->stats, sqlite3_free);
+    free_host_stats(pCur->stats, sqlite3_free);
     sqlite3_free(cur);
     return SQLITE_OK;
 }
