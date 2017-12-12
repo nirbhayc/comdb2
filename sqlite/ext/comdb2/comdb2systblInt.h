@@ -20,6 +20,7 @@ const sqlite3_module systblTunablesModule;
 const sqlite3_module systblThreadPoolsModule;
 const sqlite3_module systblFingerprintsModule;
 const sqlite3_module systblStatsModule;
+const sqlite3_module systblReplStatsModule;
 const sqlite3_module completionModule; // in ext/misc
 
 /* Simple yes/no answer for booleans */

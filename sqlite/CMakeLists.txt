@@ -24,6 +24,7 @@ add_library(sqlite
   ext/comdb2/keywords.c
   ext/comdb2/limits.c
   ext/comdb2/procedures.c
+  ext/comdb2/repl_stats.c
   ext/comdb2/statistics.c
   ext/comdb2/tablepermissions.c
   ext/comdb2/tables.c

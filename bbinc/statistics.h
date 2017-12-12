@@ -17,6 +17,9 @@
 #ifndef _STATISTICS_H
 #define _STATISTICS_H
 
+#include "bdb_api.h"
+#include "net.h"
+
 typedef enum {
     STATISTIC_INTEGER,
     STATISTIC_DOUBLE,
@@ -58,5 +61,23 @@ int init_statistics(void);
 
 /* Return the statistic type in C-string. */
 const char *statistic_type(comdb2_statistic_type type);
+
+#define HOSTNAME_LEN 16
+
+typedef struct comdb2_host_stat {
+    char host[HOSTNAME_LEN];
+    int port;
+    int64_t bytes_written;
+    int64_t bytes_read;
+    int64_t throttle_waits;
+    int64_t reorders;
+    double avg_wait_over_10secs;
+    double avg_wait_over_1min;
+} comdb2_host_stat;
+
+comdb2_host_stat *get_net_host_stats(bdb_state_type *bdb_state,
+                                     netinfo_type *netinfo_ptr,
+                                     void *(*alloc_)(int), int *count);
+void free_net_host_stats(comdb2_host_stat *stats, void (*free_)(void *));
 
 #endif /* _STATISTICS_H */

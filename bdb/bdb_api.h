@@ -999,6 +999,10 @@ int bdb_ix_updk_allowed(bdb_state_type *bdb_handle, int ixnum);
 
 void bdb_process_user_command(bdb_state_type *bdb_handle, char *line, int lline,
                               int st);
+void bdb_get_rep_avg_times(bdb_state_type *bdb_state,
+                           const char *host,
+                           double *avg_wait_over_10secs,
+                           double *avg_wait_over_1min);
 
 void bdb_short_netinfo_dump(FILE *out, bdb_state_type *bdb_state);
 

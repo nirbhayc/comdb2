@@ -2043,6 +2043,23 @@ void bdb_show_reptimes_compact(bdb_state_type *bdb_state)
         logmsg(LOGMSG_USER, "\n");
 }
 
+void bdb_get_rep_avg_times(bdb_state_type *bdb_state, const char *host,
+                           double *avg_wait_over_10secs,
+                           double *avg_wait_over_1min)
+{
+    Pthread_mutex_lock(&(bdb_state->seqnum_info->lock));
+    if (bdb_state->seqnum_info->time_10seconds[nodeix(host)]) {
+        *avg_wait_over_10secs =
+            averager_avg(bdb_state->seqnum_info->time_10seconds[nodeix(host)]);
+        *avg_wait_over_1min =
+            averager_avg(bdb_state->seqnum_info->time_minute[nodeix(host)]);
+    } else {
+        *avg_wait_over_10secs = 0.0;
+        *avg_wait_over_1min = 0.0;
+    }
+    Pthread_mutex_unlock(&(bdb_state->seqnum_info->lock));
+}
+
 void bdb_show_reptimes(bdb_state_type *bdb_state)
 {
     const char *nodes[REPMAX];

@@ -242,6 +242,8 @@ int comdb2SystblInit(
   if (rc == SQLITE_OK)
     rc = sqlite3_create_module(db, "comdb2_statistics", &systblStatsModule, 0);
   if (rc == SQLITE_OK)
+    rc = sqlite3_create_module(db, "comdb2_repl_stats", &systblReplStatsModule, 0);
+  if (rc == SQLITE_OK)
     rc = sqlite3_create_module(db, "comdb2_completion", &completionModule, 0);
 #endif
   return rc;
