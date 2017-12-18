@@ -64,7 +64,7 @@ const char *statistic_type(comdb2_statistic_type type);
 
 #define HOSTNAME_LEN 16
 
-typedef struct comdb2_host_stat {
+typedef struct comdb2_node_stat {
     char host[HOSTNAME_LEN];
     int port;
     int64_t bytes_written;
@@ -73,11 +73,11 @@ typedef struct comdb2_host_stat {
     int64_t reorders;
     double avg_wait_over_10secs;
     double avg_wait_over_1min;
-} comdb2_host_stat;
+} comdb2_node_stat;
 
-comdb2_host_stat *get_host_stats(bdb_state_type *bdb_state,
+comdb2_node_stat *get_node_stats(bdb_state_type *bdb_state,
                                  netinfo_type *netinfo_ptr,
                                  void *(*alloc_)(int), int *count);
-void free_host_stats(comdb2_host_stat *stats, void (*free_)(void *));
+void free_node_stats(comdb2_node_stat *stats, void (*free_)(void *));
 
 #endif /* _STATISTICS_H */

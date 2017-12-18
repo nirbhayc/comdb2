@@ -35,7 +35,7 @@
 typedef struct {
     sqlite3_vtab_cursor base; /* Base class - must be first */
     sqlite3_int64 rowid;      /* Row ID */
-    comdb2_host_stat *stats;  /* Statistics */
+    comdb2_node_stat *stats;  /* Statistics */
     int cluster_size;         /* Number of nodes in the cluster */
 } systbl_repl_stats_cursor;
 
@@ -98,7 +98,7 @@ static int systblReplStatsOpen(sqlite3_vtab *p, sqlite3_vtab_cursor **ppCursor)
     if (thedb->exiting || thedb->stopped)
         return SQLITE_INTERNAL;
 
-    cur->stats = get_host_stats(thedb->bdb_env, thedb->handle_sibling,
+    cur->stats = get_node_stats(thedb->bdb_env, thedb->handle_sibling,
                                 sqlite3_malloc, &cluster_size);
     if (!cur->stats)
         return SQLITE_INTERNAL;
@@ -113,7 +113,7 @@ static int systblReplStatsClose(sqlite3_vtab_cursor *cur)
 {
 
     systbl_repl_stats_cursor *pCur = (systbl_repl_stats_cursor *)cur;
-    free_host_stats(pCur->stats, sqlite3_free);
+    free_node_stats(pCur->stats, sqlite3_free);
     sqlite3_free(cur);
     return SQLITE_OK;
 }
@@ -144,7 +144,7 @@ static int systblReplStatsColumn(sqlite3_vtab_cursor *cur, sqlite3_context *ctx,
                                  int pos)
 {
     systbl_repl_stats_cursor *pCur;
-    comdb2_host_stat *stats;
+    comdb2_node_stat *stats;
 
     pCur = (systbl_repl_stats_cursor *)cur;
     stats = &pCur->stats[pCur->rowid];

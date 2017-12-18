@@ -162,12 +162,12 @@ const char *statistic_type(comdb2_statistic_type type)
     }
 }
 
-comdb2_host_stat *get_host_stats(bdb_state_type *bdb_state,
+comdb2_node_stat *get_node_stats(bdb_state_type *bdb_state,
                                  netinfo_type *netinfo_ptr,
                                  void *(*alloc_)(int), int *count)
 {
 
-    comdb2_host_stat *stats;
+    comdb2_node_stat *stats;
     host_node_type *ptr;
     int i;
     int size;
@@ -178,7 +178,7 @@ comdb2_host_stat *get_host_stats(bdb_state_type *bdb_state,
     for (ptr = netinfo_ptr->head; ptr != NULL; ptr = ptr->next)
         i++;
 
-    stats = alloc_(sizeof(comdb2_host_stat) * i);
+    stats = alloc_(sizeof(comdb2_node_stat) * i);
     if (!stats) {
         pthread_rwlock_unlock(&(netinfo_ptr->lock));
         return 0;
@@ -207,7 +207,7 @@ comdb2_host_stat *get_host_stats(bdb_state_type *bdb_state,
     return stats;
 }
 
-void free_host_stats(comdb2_host_stat *stats, void (*free_)(void *))
+void free_node_stats(comdb2_node_stat *stats, void (*free_)(void *))
 {
     free_(stats);
 }
