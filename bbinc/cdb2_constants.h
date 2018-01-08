@@ -43,5 +43,6 @@
 #define MAXTABLELEN 32
 #define MAXTAGLEN 64
 #define REPMAX 32
+#define MAXHOSTNAMELEN 64
 
 #endif

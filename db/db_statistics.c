@@ -187,8 +187,8 @@ comdb2_node_stat *get_node_stats(bdb_state_type *bdb_state,
     *count = i;
 
     for (ptr = netinfo_ptr->head, i = 0; ptr != NULL; ptr = ptr->next, i++) {
-        size = (ptr->hostname_len >= HOSTNAME_LEN) ? HOSTNAME_LEN - 1
-                                                   : ptr->hostname_len;
+        size = (ptr->hostname_len >= MAXHOSTNAMELEN)
+            ? MAXHOSTNAMELEN - 1 : ptr->hostname_len;
         memcpy(stats[i].host, ptr->host, size);
         stats[i].host[size] = 0;
         stats[i].port = ptr->port;

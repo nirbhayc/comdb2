@@ -34,6 +34,7 @@
 #include <machine.h>
 
 #include "comdb2.h"
+#include "cdb2_constants.h"
 #include "intern_strings.h"
 #include "util.h"
 #include "rtcpu.h"
@@ -69,7 +70,7 @@ enum mach_class get_my_mach_class(void)
         char line[512];
         char *tok;
         FILE *fh;
-        char hostname[64];
+        char hostname[MAXHOSTNAMELEN];
 
         /* whatever the outcome, don't do this again */
         have_class = 1;

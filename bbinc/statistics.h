@@ -18,6 +18,7 @@
 #define _STATISTICS_H
 
 #include "bdb_api.h"
+#include "cdb2_constants.h"
 #include "net.h"
 
 typedef enum {
@@ -62,10 +63,8 @@ int init_statistics(void);
 /* Return the statistic type in C-string. */
 const char *statistic_type(comdb2_statistic_type type);
 
-#define HOSTNAME_LEN 16
-
 typedef struct comdb2_node_stat {
-    char host[HOSTNAME_LEN];
+    char host[MAXHOSTNAMELEN];
     int port;
     int64_t bytes_written;
     int64_t bytes_read;

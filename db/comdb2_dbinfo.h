@@ -22,6 +22,7 @@
 
 #include <compile_time_assert.h>
 #include <stddef.h>
+#include "cdb2_constants.h"
 
 enum db_info2types {
     DBINFO2_FIRSTRQ = 1,
@@ -83,7 +84,7 @@ struct db_info2_cluster_info {
     int incoherent; /* 1 if incoherent, otherwise 0 */
     int fluff[7];
     struct node_info {
-        char hostname[64];
+        char hostname[MAXHOSTNAMELEN];
         int node;
     } siblings[1];
 };

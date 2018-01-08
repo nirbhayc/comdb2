@@ -234,6 +234,12 @@ int sbuf2ungetc(char c, SBUF2 *sb);
 
 static int net_portmux_hello(void *);
 
+/*
+  NC: We should ideally be using MAXHOSTNAMELEN here, but that
+  could change the wire-protocol and thus the compatibility.
+*/
+#define HOSTNAME_LEN 16
+
 /* We can't change the on-wire protocol easily.  So it
  * retains node numbers, but they're unused for now */
 /* type 0 is internal connect message.

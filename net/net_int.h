@@ -121,14 +121,12 @@ typedef struct {
     unsigned long long reorders;
 } stats_type;
 
-#define HOSTNAME_LEN 16
-
 struct host_node_tag {
     int fd;
     SBUF2 *sb;
     char *host;
     int hostname_len;
-    char subnet[HOSTNAME_LEN];
+    char subnet[MAXHOSTNAMELEN];
     int port;
     struct host_node_tag *next;
     int have_connect_thread;
@@ -228,7 +226,7 @@ struct netinfo_struct {
     */
     char *myhostname;
     int myhostname_len;
-    char myhostname_other[32];
+    char myhostname_other[MAXHOSTNAMELEN];
     int myport;
     int myfd;
     char app[16];
