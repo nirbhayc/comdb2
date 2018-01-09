@@ -223,6 +223,15 @@ static comdb2_appsock_t logdelete3_handler = {
     handle_logdelete_request /* Handler function */
 };
 
+static int handle_mtrap_request(comdb2_appsock_arg_t *arg);
+static comdb2_appsock_t mtrap_handler = {
+    "mtrap",             /* Name */
+    "",                  /* Usage info */
+    0,                   /* Execution count */
+    0,                   /* Flags */
+    handle_mtrap_request /* Handler function */
+};
+
 void close_appsock(SBUF2 *sb)
 {
     net_end_appsock(sb);
@@ -256,6 +265,7 @@ int appsock_init(void)
     hash_add(gbl_appsock_hash, &logdelete_handler);
     hash_add(gbl_appsock_hash, &logdelete2_handler);
     hash_add(gbl_appsock_hash, &logdelete3_handler);
+    hash_add(gbl_appsock_hash, &mtrap_handler);
 
     gbl_appsock_thdpool =
         thdpool_create("appsockpool", sizeof(struct appsock_thd_state));
@@ -825,6 +835,41 @@ static int handle_logdelete_request(comdb2_appsock_arg_t *arg)
         sbuf2printf(sb, ".\n");
         sbuf2flush(sb);
     }
+    return 0;
+}
+
+static int handle_mtrap_request(comdb2_appsock_arg_t *arg)
+{
+    FILE *f;
+    char buf[1024];
+    struct sbuf2 *sb;
+    char *line;
+    int st;
+    int len;
+
+    sb = arg->sb;
+    line = arg->cmdline;
+    len = strlen(line);
+    st = 0;
+
+    f = tmpfile();
+    if (!f) {
+        fprintf(stderr,
+                "%s:%d SYSTEM RAN OUT OF FILE DESCRIPTORS!!!"
+                " EXITING\n",
+                __FILE__, __LINE__);
+        clean_exit();
+    }
+    io_override_set_std(f);
+    process_command(thedb, line, len, st);
+    io_override_set_std(NULL);
+    rewind(f);
+    while (fgets(buf, sizeof(buf), f))
+        sbuf2printf(sb, ">%s", buf);
+    sbuf2printf(sb, "SUCCESS\n");
+    sbuf2flush(sb);
+    fclose(f);
+
     return 0;
 }
 
