@@ -172,15 +172,6 @@ static comdb2_appsock_t explain_handler = {
     handle_explain_request /* Handler function */
 };
 
-static int handle_whomasterhost_request(comdb2_appsock_arg_t *arg);
-static comdb2_appsock_t whomasterhost_handler = {
-    "whomasterhost",             /* Name */
-    "",                          /* Usage info */
-    0,                           /* Execution count */
-    0,                           /* Flags */
-    handle_whomasterhost_request /* Handler function */
-};
-
 static int handle_genid48_request(comdb2_appsock_arg_t *arg);
 static comdb2_appsock_t genid48_handler = {
     "genid48",             /* Name */
@@ -251,7 +242,6 @@ int appsock_init(void)
     hash_add(gbl_appsock_hash, &version_handler);
     hash_add(gbl_appsock_hash, &testcompr_handler);
     hash_add(gbl_appsock_hash, &explain_handler);
-    hash_add(gbl_appsock_hash, &whomasterhost_handler);
     hash_add(gbl_appsock_hash, &genid48_handler);
     hash_add(gbl_appsock_hash, &logdelete_handler);
     hash_add(gbl_appsock_hash, &logdelete2_handler);
@@ -628,25 +618,6 @@ static int handle_explain_request(comdb2_appsock_arg_t *arg)
     handle_explain(sb, trace, all);
 
     return APPSOCK_RETURN_OK;
-}
-
-static int handle_whomasterhost_request(comdb2_appsock_arg_t *arg)
-{
-    struct sbuf2 *sb;
-    char host[50];
-    char *master;
-
-    master = arg->dbenv->master;
-    sb = arg->sb;
-
-    if (master == NULL) {
-        sbuf2printf(sb, "-1\n");
-    } else {
-        sbuf2printf(sb, "%s\n", master);
-    }
-    sbuf2flush(sb);
-
-    return APPSOCK_RETURN_CONT;
 }
 
 static int handle_genid48_request(comdb2_appsock_arg_t *arg)
