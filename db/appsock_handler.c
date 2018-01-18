@@ -145,14 +145,6 @@ static comdb2_appsock_t repopnewlrl_handler = {
     appsock_repopnewlrl /* Handler function */
 };
 
-static comdb2_appsock_t partition_handler = {
-    "partition",     /* Name */
-    "",              /* Usage info */
-    0,               /* Execution count */
-    0,               /* Flags */
-    handle_partition /* Handler function */
-};
-
 static int handle_version_request(comdb2_appsock_arg_t *arg);
 static comdb2_appsock_t version_handler = {
     "version",             /* Name */
@@ -256,7 +248,6 @@ int appsock_init(void)
     hash_add(gbl_appsock_hash, &remtran_handler);
     hash_add(gbl_appsock_hash, &alias_handler);
     hash_add(gbl_appsock_hash, &repopnewlrl_handler);
-    hash_add(gbl_appsock_hash, &partition_handler);
     hash_add(gbl_appsock_hash, &version_handler);
     hash_add(gbl_appsock_hash, &testcompr_handler);
     hash_add(gbl_appsock_hash, &explain_handler);

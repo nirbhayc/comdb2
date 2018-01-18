@@ -3403,7 +3403,6 @@ extern int __slow_write_ns;
 
 #include "comdb2_appsock.h"
 int appsock_repopnewlrl(comdb2_appsock_arg_t *arg);
-int handle_partition(comdb2_appsock_arg_t *arg);
 
 void handle_testcompr(SBUF2 *sb, const char *table);
 void handle_setcompr(SBUF2 *);
