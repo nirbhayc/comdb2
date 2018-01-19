@@ -2971,7 +2971,6 @@ BB_COMPILE_TIME_ASSERT(make_node_incoherent_req,
     ((rc) == IX_FND || (rc) == IX_NOTFND || (rc) == IX_FNDMORE ||              \
      (rc) == IX_PASTEOF)
 
-void mtrap_init(void);
 void mtrap(char *msg);
 
 int get_file_lwm(int lwmp[2]);

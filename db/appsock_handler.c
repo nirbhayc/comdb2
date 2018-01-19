@@ -1,5 +1,5 @@
 /*
-   Copyright 2015, 2017, Bloomberg Finance L.P.
+   Copyright 2015, 2018, Bloomberg Finance L.P.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -157,15 +157,6 @@ static comdb2_appsock_t genid48_handler = {
     handle_genid48_request /* Handler function */
 };
 
-static int handle_mtrap_request(comdb2_appsock_arg_t *arg);
-static comdb2_appsock_t mtrap_handler = {
-    "mtrap",             /* Name */
-    "",                  /* Usage info */
-    0,                   /* Execution count */
-    0,                   /* Flags */
-    handle_mtrap_request /* Handler function */
-};
-
 void close_appsock(SBUF2 *sb)
 {
     net_end_appsock(sb);
@@ -191,7 +182,6 @@ int appsock_init(void)
     hash_add(gbl_appsock_hash, &testcompr_handler);
     hash_add(gbl_appsock_hash, &explain_handler);
     hash_add(gbl_appsock_hash, &genid48_handler);
-    hash_add(gbl_appsock_hash, &mtrap_handler);
 
     gbl_appsock_thdpool =
         thdpool_create("appsockpool", sizeof(struct appsock_thd_state));
@@ -603,41 +593,6 @@ static int handle_genid48_request(comdb2_appsock_arg_t *arg)
     }
     sbuf2printf(sb, "?Invalid genid48 command.\nFAILED\n");
     sbuf2flush(sb);
-
-    return APPSOCK_RETURN_CONT;
-}
-
-static int handle_mtrap_request(comdb2_appsock_arg_t *arg)
-{
-    FILE *f;
-    char buf[1024];
-    struct sbuf2 *sb;
-    char *line;
-    int st;
-    int len;
-
-    sb = arg->sb;
-    line = arg->cmdline;
-    len = strlen(line);
-    st = 0;
-
-    f = tmpfile();
-    if (!f) {
-        fprintf(stderr,
-                "%s:%d SYSTEM RAN OUT OF FILE DESCRIPTORS!!!"
-                " EXITING\n",
-                __FILE__, __LINE__);
-        clean_exit();
-    }
-    io_override_set_std(f);
-    process_command(thedb, line, len, st);
-    io_override_set_std(NULL);
-    rewind(f);
-    while (fgets(buf, sizeof(buf), f))
-        sbuf2printf(sb, ">%s", buf);
-    sbuf2printf(sb, "SUCCESS\n");
-    sbuf2flush(sb);
-    fclose(f);
 
     return APPSOCK_RETURN_CONT;
 }
