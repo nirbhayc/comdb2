@@ -105,15 +105,6 @@ static void appsock_thd_start(struct thdpool *pool, void *thddata);
 static void appsock_thd_end(struct thdpool *pool, void *thddata);
 
 /* Builtin appsock handlers */
-static int handle_version_request(comdb2_appsock_arg_t *arg);
-static comdb2_appsock_t version_handler = {
-    "version",             /* Name */
-    "",                    /* Usage info */
-    0,                     /* Execution count */
-    0,                     /* Flags */
-    handle_version_request /* Handler function */
-};
-
 static int handle_testcompr_request(comdb2_appsock_arg_t *arg);
 static comdb2_appsock_t testcompr_handler = {
     "testcompr",             /* Name */
@@ -151,7 +142,6 @@ int appsock_init(void)
     logmsg(LOGMSG_DEBUG, "appsock handler hash initialized\n");
 
     /* Also register the builtin appsock handlers. */
-    hash_add(gbl_appsock_hash, &version_handler);
     hash_add(gbl_appsock_hash, &testcompr_handler);
     hash_add(gbl_appsock_hash, &genid48_handler);
 
@@ -454,14 +444,6 @@ static void *thd_appsock_int(SBUF2 *sb, int *keepsocket,
 
     thrman_where(thr_self, NULL);
 
-    return 0;
-}
-
-static int handle_version_request(comdb2_appsock_arg_t *arg)
-{
-    struct sbuf2 *sb = arg->sb;
-    sbuf2printf(sb, "0 %s\n", plink_constant(PLINK_TIME));
-    sbuf2flush(sb);
     return 0;
 }
 
