@@ -3400,9 +3400,6 @@ extern int __slow_write_ns;
 
 #include "dbglog.h"
 
-#include "comdb2_appsock.h"
-int appsock_repopnewlrl(comdb2_appsock_arg_t *arg);
-
 void handle_testcompr(SBUF2 *sb, const char *table);
 void handle_setcompr(SBUF2 *);
 void handle_rowlocks_enable(SBUF2 *);
@@ -3612,5 +3609,7 @@ int rename_table_options(void *tran, struct dbtable *db, const char *newname);
 
 int comdb2_get_verify_remote_schemas(void);
 void comdb2_set_verify_remote_schemas(void);
+
+int repopulate_lrl(const char *p_lrl_fname_out);
 
 #endif /* !INCLUDED_COMDB2_H */
