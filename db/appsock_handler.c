@@ -105,30 +105,6 @@ static void appsock_thd_start(struct thdpool *pool, void *thddata);
 static void appsock_thd_end(struct thdpool *pool, void *thddata);
 
 /* Builtin appsock handlers */
-static comdb2_appsock_t remcur_handler = {
-    "remcur",     /* Name */
-    "",           /* Usage info */
-    0,            /* Execution count */
-    0,            /* Flags */
-    handle_remcur /* Handler function */
-};
-
-static comdb2_appsock_t remsql_handler = {
-    "remsql",     /* Name */
-    "",           /* Usage info */
-    0,            /* Execution count */
-    0,            /* Flags */
-    handle_remsql /* Handler function */
-};
-
-static comdb2_appsock_t remtran_handler = {
-    "remtran",     /* Name */
-    "",            /* Usage info */
-    0,             /* Execution count */
-    0,             /* Flags */
-    handle_remtran /* Handler function */
-};
-
 static comdb2_appsock_t alias_handler = {
     "alias",          /* Name */
     "",               /* Usage info */
@@ -209,9 +185,6 @@ int appsock_init(void)
     logmsg(LOGMSG_DEBUG, "appsock handler hash initialized\n");
 
     /* Also register the builtin appsock handlers. */
-    hash_add(gbl_appsock_hash, &remcur_handler);
-    hash_add(gbl_appsock_hash, &remsql_handler);
-    hash_add(gbl_appsock_hash, &remtran_handler);
     hash_add(gbl_appsock_hash, &alias_handler);
     hash_add(gbl_appsock_hash, &repopnewlrl_handler);
     hash_add(gbl_appsock_hash, &version_handler);
