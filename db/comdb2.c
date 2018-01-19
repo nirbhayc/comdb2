@@ -747,6 +747,8 @@ int gbl_disable_etc_services_lookup = 0;
 int gbl_fingerprint_queries = 1;
 int gbl_stable_rootpages_test = 0;
 
+int gbl_allow_incoherent_sql = 0;
+
 /* Bulk import */
 int gbl_enable_bulk_import; /* allow this db to bulk import */
 int gbl_enable_bulk_import_different_tables;

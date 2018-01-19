@@ -104,16 +104,6 @@ static size_t num_commands = 0;
 static void appsock_thd_start(struct thdpool *pool, void *thddata);
 static void appsock_thd_end(struct thdpool *pool, void *thddata);
 
-/* Builtin appsock handlers */
-static int handle_genid48_request(comdb2_appsock_arg_t *arg);
-static comdb2_appsock_t genid48_handler = {
-    "genid48",             /* Name */
-    "",                    /* Usage info */
-    0,                     /* Execution count */
-    0,                     /* Flags */
-    handle_genid48_request /* Handler function */
-};
-
 void close_appsock(SBUF2 *sb)
 {
     net_end_appsock(sb);
@@ -131,9 +121,6 @@ int appsock_init(void)
         hash_init_user((hashfunc_t *)strhashfunc, (cmpfunc_t *)strcmpfunc,
                        offsetof(comdb2_appsock_t, name), 0);
     logmsg(LOGMSG_DEBUG, "appsock handler hash initialized\n");
-
-    /* Also register the builtin appsock handlers. */
-    hash_add(gbl_appsock_hash, &genid48_handler);
 
     gbl_appsock_thdpool =
         thdpool_create("appsockpool", sizeof(struct appsock_thd_state));
@@ -205,6 +192,7 @@ void appsock_get_dbinfo2_stats(uint32_t *n_appsock, uint32_t *n_sql)
     *n_sql = exec_count;
 }
 
+#if 0
 static void dumprrns(struct dbtable *tbl, SBUF2 *sb)
 {
     char key[MAXKEYLEN];
@@ -242,7 +230,6 @@ struct loadrrn_cmd {
     int parm;
 };
 
-/* TODO: obsolete */
 enum { LOAD_ADD_RECORD, LOAD_GET_STATUS };
 static int loadrrns(struct dbtable *tbl, SBUF2 *sb, char *tag)
 {
@@ -357,8 +344,7 @@ static void *fstdump_hndlr(void *arg_)
     backend_thread_event(thedb, COMDB2_THR_EVENT_DONE_RDONLY);
     return NULL;
 }
-
-int gbl_allow_incoherent_sql = 0;
+#endif
 
 static void *thd_appsock_int(SBUF2 *sb, int *keepsocket,
                              struct thr_handle *thr_self)
@@ -435,48 +421,6 @@ static void *thd_appsock_int(SBUF2 *sb, int *keepsocket,
     thrman_where(thr_self, NULL);
 
     return 0;
-}
-
-static int handle_genid48_request(comdb2_appsock_arg_t *arg)
-{
-    struct sbuf2 *sb;
-    char *line;
-    char *tok;
-    int st;
-    int ltok;
-    int len;
-
-    sb = arg->sb;
-    line = arg->cmdline;
-    len = strlen(line);
-    st = 0;
-
-    tok = segtok(line, len, &st, &ltok);
-    assert((strncmp(tok, "genid48", ltok) == 0));
-
-    tok = segtok(line, len, &st, &ltok);
-    if (ltok <= 0) {
-        sbuf2printf(sb, "?No command specified.\nFAILED\n");
-        sbuf2flush(sb);
-        return APPSOCK_RETURN_CONT;
-    }
-    if (thedb->master != gbl_mynode) {
-        sbuf2printf(sb, "?Must be run on the master\nFAILED\n");
-        sbuf2flush(sb);
-        return APPSOCK_RETURN_CONT;
-    }
-    if (ltok && !tokcmp(tok, ltok, "enable")) {
-        handle_genid48_enable(sb);
-        return APPSOCK_RETURN_CONT;
-    }
-    if (ltok && !tokcmp(tok, ltok, "disable")) {
-        handle_genid48_disable(sb);
-        return APPSOCK_RETURN_CONT;
-    }
-    sbuf2printf(sb, "?Invalid genid48 command.\nFAILED\n");
-    sbuf2flush(sb);
-
-    return APPSOCK_RETURN_CONT;
 }
 
 static void appsock_thd_start(struct thdpool *pool, void *thddata)
@@ -622,34 +566,6 @@ void appsock_handler_start(struct dbenv *dbenv, SBUF2 *sb)
     }
 }
 
-static int set_genid48(int enable)
-{
-    scdone_t llog;
-    int rc, bdberr, format;
-    if (enable) {
-        llog = genid48_enable;
-        format = LLMETA_GENID_48BIT;
-    } else {
-        llog = genid48_disable;
-        format = LLMETA_GENID_ORIGINAL;
-    }
-
-    if ((rc = bdb_set_genid_format(format, &bdberr)) != 0) {
-        logmsg(LOGMSG_FATAL, "Error setting genid format, rc=%d, bdberr=%d\n",
-               rc, bdberr);
-        abort();
-    }
-
-    if ((rc = bdb_llog_genid_format(thedb->bdb_env, llog, &bdberr)) != 0) {
-        logmsg(LOGMSG_FATAL,
-               "Error writing genid format log, rc=%d, bdberr=%d\n", rc,
-               bdberr);
-        abort();
-    }
-
-    return 0;
-}
-
 int set_rowlocks(void *trans, int enable)
 {
     int rc, bdberr, rlstate;
@@ -673,50 +589,4 @@ int set_rowlocks(void *trans, int enable)
     }
 
     return 0;
-}
-
-void handle_genid48_enable(SBUF2 *sb)
-{
-    int format = bdb_genid_format(thedb->bdb_env), rc;
-
-    if (format == LLMETA_GENID_48BIT) {
-        sbuf2printf(sb, "?Genid48 is already enabled.\nFAILED\n");
-        sbuf2flush(sb);
-        return;
-    }
-
-    rc = set_genid48(LLMETA_GENID_48BIT);
-    if (rc == 0)
-        sbuf2printf(sb, "SUCCESS\n");
-    else
-        sbuf2printf(sb, "FAILED\n");
-
-    sbuf2flush(sb);
-}
-
-void handle_genid48_disable(SBUF2 *sb)
-{
-    int format = bdb_genid_format(thedb->bdb_env), rc;
-
-    if (format == LLMETA_GENID_ORIGINAL) {
-        sbuf2printf(sb, "?Genid48 is already disabled.\nFAILED\n");
-        sbuf2flush(sb);
-        return;
-    }
-
-    /* Allow if now is greater than maximum genid */
-    if (!bdb_genid_allow_original_format(thedb->bdb_env)) {
-        sbuf2printf(
-            sb, "?Genid48 genid-time is larger than current-time.\nFAILED\n");
-        sbuf2flush(sb);
-        return;
-    }
-
-    rc = set_genid48(LLMETA_GENID_ORIGINAL);
-    if (rc == 0)
-        sbuf2printf(sb, "SUCCESS\n");
-    else
-        sbuf2printf(sb, "FAILED\n");
-
-    sbuf2flush(sb);
 }

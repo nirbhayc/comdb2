@@ -3405,8 +3405,6 @@ void handle_setcompr(SBUF2 *);
 void handle_rowlocks_enable(SBUF2 *);
 void handle_rowlocks_enable_master_only(SBUF2 *);
 void handle_rowlocks_disable(SBUF2 *);
-void handle_genid48_enable(SBUF2 *);
-void handle_genid48_disable(SBUF2 *);
 
 extern int gbl_bbipc_slotidx;
 
