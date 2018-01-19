@@ -139,15 +139,6 @@ static comdb2_appsock_t testcompr_handler = {
     handle_testcompr_request /* Handler function */
 };
 
-static int handle_explain_request(comdb2_appsock_arg_t *arg);
-static comdb2_appsock_t explain_handler = {
-    "explain",             /* Name */
-    "",                    /* Usage info */
-    0,                     /* Execution count */
-    0,                     /* Flags */
-    handle_explain_request /* Handler function */
-};
-
 static int handle_genid48_request(comdb2_appsock_arg_t *arg);
 static comdb2_appsock_t genid48_handler = {
     "genid48",             /* Name */
@@ -180,7 +171,6 @@ int appsock_init(void)
     hash_add(gbl_appsock_hash, &repopnewlrl_handler);
     hash_add(gbl_appsock_hash, &version_handler);
     hash_add(gbl_appsock_hash, &testcompr_handler);
-    hash_add(gbl_appsock_hash, &explain_handler);
     hash_add(gbl_appsock_hash, &genid48_handler);
 
     gbl_appsock_thdpool =
@@ -516,41 +506,6 @@ static int handle_testcompr_request(comdb2_appsock_arg_t *arg)
     tokcpy0(tok, ltok, table, sizeof(table));
 
     handle_testcompr(sb, table);
-
-    return APPSOCK_RETURN_OK;
-}
-
-void handle_explain(SBUF2 *sb, int trace, int all);
-
-static int handle_explain_request(comdb2_appsock_arg_t *arg)
-{
-    struct sbuf2 *sb;
-    char *line;
-    char *tok;
-    int st;
-    int ltok;
-    int len;
-    int trace = 0;
-    int all = 0;
-
-    sb = arg->sb;
-    line = arg->cmdline;
-    len = strlen(line);
-    st = 0;
-
-    tok = segtok(line, len, &st, &ltok);
-    assert((strncmp(tok, "explain", ltok) == 0));
-
-    while (tok = segtok(line, len, &st, &ltok)) {
-        if (ltok == 0) {
-            break;
-        } else if (tokcmp(tok, ltok, "-v") == 0) {
-            trace = 1;
-        } else if (tokcmp(tok, ltok, "-a") == 0) {
-            all = 1;
-        }
-    }
-    handle_explain(sb, trace, all);
 
     return APPSOCK_RETURN_OK;
 }
