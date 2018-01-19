@@ -105,14 +105,6 @@ static void appsock_thd_start(struct thdpool *pool, void *thddata);
 static void appsock_thd_end(struct thdpool *pool, void *thddata);
 
 /* Builtin appsock handlers */
-static comdb2_appsock_t alias_handler = {
-    "alias",          /* Name */
-    "",               /* Usage info */
-    0,                /* Execution count */
-    0,                /* Flags */
-    fdb_alias_command /* Handler function */
-};
-
 static comdb2_appsock_t repopnewlrl_handler = {
     "repopnewlrl",      /* Name */
     "",                 /* Usage info */
@@ -167,7 +159,6 @@ int appsock_init(void)
     logmsg(LOGMSG_DEBUG, "appsock handler hash initialized\n");
 
     /* Also register the builtin appsock handlers. */
-    hash_add(gbl_appsock_hash, &alias_handler);
     hash_add(gbl_appsock_hash, &repopnewlrl_handler);
     hash_add(gbl_appsock_hash, &version_handler);
     hash_add(gbl_appsock_hash, &testcompr_handler);
