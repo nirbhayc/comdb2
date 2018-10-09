@@ -1054,8 +1054,8 @@ void sqlite3Insert(
           regIns, 0, ipkColumn>=0, onError, endOfLoop, &isReplace, 0, pUpsert
       );
       sqlite3FkCheck(pParse, pTab, 0, regIns, 0, 0);
-      sqlite3CompleteInsertion(pParse, pTab, iDataCur, iIdxCur,
-                               regIns, aRegIdx, 0, appendFlag, isReplace==0);
+      sqlite3CompleteInsertion(pParse, pTab, iDataCur, iIdxCur, regIns,
+                               aRegIdx, 0, appendFlag, isReplace==0, 0);
     }
   }
 
@@ -1852,6 +1852,8 @@ void sqlite3GenerateConstraintChecks(
       }
 #ifndef SQLITE_OMIT_UPSERT
       case OE_Update: {
+        sqlite3CompleteInsertion(pParse, pTab, iDataCur, iIdxCur, regNewData,
+                                 aRegIdx, 0, 0, 1, 1);
         sqlite3UpsertDoUpdate(pParse, pUpsert, pTab, pIdx, iIdxCur+ix);
         /* Fall through */
       }
@@ -1911,7 +1913,10 @@ void sqlite3CompleteInsertion(
   int *aRegIdx,       /* Register used by each index.  0 for unused indices */
   int isUpdate,       /* True for UPDATE, False for INSERT */
   int appendBias,     /* True if this is likely to be an append */
-  int useSeekResult   /* True to set the USESEEKRESULT flag on OP_[Idx]Insert */
+  int useSeekResult,  /* True to set the USESEEKRESULT flag on OP_[Idx]Insert */
+  /* COMDB2 MODIFICATION */
+  u8  checkOnly       /* The opcodes generated are sent to the master for
+                         index-verification purposes only. */
 ){
   Vdbe *v;            /* Prepared statements under construction */
   Index *pIdx;        /* An index being inserted or updated */
@@ -1941,6 +1946,9 @@ void sqlite3CompleteInsertion(
         assert( pParse->nested==0 );
         pik_flags |= OPFLAG_NCHANGE;
       }
+      if ( checkOnly==1 ) {
+        pik_flags |= OPFLAG_CHECK_ONLY;
+      }
       sqlite3VdbeChangeP5(v, pik_flags);
     }
   }
@@ -1966,6 +1974,9 @@ void sqlite3CompleteInsertion(
     pik_flags |= OPFLAG_FORCE_VERIFY;
   } else if(comdb2IgnoreFailure(pParse->pVdbe)) {
     pik_flags |= OPFLAG_IGNORE_FAILURE;
+  }
+  if ( checkOnly==1 ) {
+    pik_flags |= OPFLAG_CHECK_ONLY;
   }
 
   sqlite3VdbeAddOp3(v, OP_Insert, iDataCur, regRec, regNewData);

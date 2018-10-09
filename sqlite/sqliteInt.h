@@ -3200,6 +3200,7 @@ struct AuthContext {
 /* COMDB2 MODIFICATION: The following bits are to support UPSERT, IGNORE and
  * REPLACE.
  */
+#define OPFLAG_CHECK_ONLY     0x20
 #define OPFLAG_FORCE_VERIFY   0x40
 #define OPFLAG_IGNORE_FAILURE 0x80
 
@@ -3935,7 +3936,7 @@ int sqlite3GenerateIndexKey(Parse*, Index*, int, int, int, int*,Index*,int);
 void sqlite3ResolvePartIdxLabel(Parse*,int);
 void sqlite3GenerateConstraintChecks(Parse*,Table*,int*,int,int,int,int,
                                      u8,u8,int,int*,int*,Upsert*);
-void sqlite3CompleteInsertion(Parse*,Table*,int,int,int,int*,int,int,int);
+void sqlite3CompleteInsertion(Parse*,Table*,int,int,int,int*,int,int,int,u8);
 int sqlite3OpenTableAndIndices(Parse*, Table*, int, u8, int, u8*, int*, int*,
                                Upsert*);
 void sqlite3BeginWriteOperation(Parse*, int, int);

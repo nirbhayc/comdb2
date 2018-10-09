@@ -66,19 +66,21 @@ done
 done
 done
 (a='four', b=1)
-(a='one', b=3)
+(a='one', b=1)
+(a='one', b=2)
+(a='one', b=2)
+(a='three', b=1)
 (a='three', b=2)
 (a='two', b=1)
 done
+[COMMIT] failed with rc 299 add key constraint duplicate key '$KEY_89A0A1BB' on table 't1' index 0
 done
-(a='four', b=1)
-(a='one', b=3)
-(a='three', b=2)
+(a='one', b=1)
+(a='three', b=1)
 (a='two', b=1)
 done
-(a='four', b=1)
-(a='one', b=3)
-(a='three', b=2)
+(a='one', b=1)
+(a='three', b=1)
 (a='two', b=1)
 done
 done
@@ -101,13 +103,18 @@ done
 done
 (rows inserted=1)
 done
-(a=1, b=99, c=2, 'x'='x')
+(a=1, b=4, c=0, 'x'='x')
+(a=1, b=99, c=0, 'x'='x')
+(a=1, b=8, c=1, 'x'='x')
+(a=1, b=99, c=1, 'x'='x')
+(a=2, b=15, c=0, 'x'='x')
 (a=2, b=15, c=1, 'x'='x')
 (a=3, b=4, c=0, 'x'='x')
+(a=3, b=1, c=0, 'x'='x')
 done
+[COMMIT] failed with rc 299 add key constraint duplicate key 'COMDB2_PK' on table 't1' index 0
 done
-(a=1, b=99, c=2, 'x'='x')
-(a=2, b=15, c=1, 'x'='x')
+(a=1, b=2, c=0, 'x'='x')
 (a=3, b=4, c=0, 'x'='x')
 done
 done

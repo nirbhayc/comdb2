@@ -7008,8 +7008,19 @@ int osql_process_packet(struct ireq *iq, unsigned long long rqid, uuid_t uuid,
             if (err->errcode == OP_FAILED_UNIQ) {
                 int upsert_idx = dt.upsert_flags >> 8;
                 if ((dt.upsert_flags & OSQL_FORCE_VERIFY) != 0) {
-                    err->errcode = OP_FAILED_VERIFY;
-                    rc = ERR_VERIFY;
+                    if (((dt.upsert_flags & OSQL_CHECK_ONLY) != 0) &&
+                        ((upsert_idx != MAXINDEX + 1) &&
+                         (upsert_idx != err->ixnum))) {
+                        /* Call it a real failure! */
+                        reqerrstr(iq, COMDB2_CSTRT_RC_DUP, "add key constraint "
+                                                           "duplicate key '%s' on "
+                                                           "table '%s' index %d",
+                                  get_keynm_from_db_idx(iq->usedb, err->ixnum),
+                                  iq->usedb->tablename, err->ixnum);
+                    } else {
+                        err->errcode = OP_FAILED_VERIFY;
+                        rc = ERR_VERIFY;
+                    }
                 } else if ((rc == IX_DUP) &&
                            ((dt.upsert_flags & OSQL_IGNORE_FAILURE) != 0) &&
                            ((upsert_idx == MAXINDEX + 1) ||

@@ -460,7 +460,7 @@ int add_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
         ERR;
     }
 
-    if ((rec_flags & OSQL_IGNORE_FAILURE) != 0) {
+    if ((rec_flags & (OSQL_IGNORE_FAILURE|OSQL_CHECK_ONLY)) != 0) {
         int upsert_idx = rec_flags >> 8;
 
         /* If a specific index has been used in the ON CONFLICT clause (aka
@@ -492,6 +492,10 @@ int add_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
             if (rc) {
                 ERR
             }
+        }
+
+        if ((rec_flags & OSQL_CHECK_ONLY) != 0) {
+            ERR
         }
 
         /* Perform the check for upsert index that we skipped above. */
