@@ -1006,6 +1006,13 @@ static int newsql_cost(struct sqlclntstate *clnt)
 
 static int newsql_write_response(struct sqlclntstate *c, int t, void *a, int i)
 {
+    /* Fault injection: return error to emulate n/w issue.
+     * This should trigger client APIs to retry last query.
+     **/
+    if (strncasecmp(c->sql, "insert", sizeof("insert")-1) == 0) {
+        return 1;
+    }
+
     switch (t) {
     case RESPONSE_COLUMNS:
         return newsql_columns(c, a);
@@ -2403,6 +2410,7 @@ static int handle_newsql_request(comdb2_appsock_arg_t *arg)
     }
 
 done:
+    printf("connection dropped!\n");
     sbuf2setclnt(sb, NULL);
     clnt_unregister(&clnt);
 
