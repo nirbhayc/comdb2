@@ -215,12 +215,14 @@ u_int64_t gbl_memp_pgreads = 0;
  *      mark whether it needs to do io
  */
 static int
-__memp_fget_internal(dbmfp, pgnoaddr, flags, addrp, did_io)
+__memp_fget_buf_internal(dbmfp, pgnoaddr, flags, addrp, did_io, buf, size)
 	DB_MPOOLFILE *dbmfp;
 	db_pgno_t *pgnoaddr;
 	u_int32_t flags;
 	void *addrp;
 	int *did_io;
+	unsigned char **buf;
+	size_t *size;
 {
 	enum { FIRST_FOUND, FIRST_MISS, SECOND_FOUND, SECOND_MISS } state;
 	BH *alloc_bhp, *bhp;
@@ -795,6 +797,8 @@ alloc:		/*
 
 
 	if (F_ISSET(bhp, BH_TRASH)) {
+		// NC: If we are a physical replicant and this is a sql thread,
+		// then we should ask for the page from the cluster.
 		if ((ret = __memp_pgread(dbmfp,
 				hp, bhp,
 			    LF_ISSET(DB_MPOOL_CREATE) ? 1 : 0,
@@ -842,6 +846,14 @@ alloc:		/*
 
 	if (gbl_bb_berkdb_enable_memp_timing)
 		bb_memp_hit(start_time_us);
+
+	// NC: page is stuck in bhp->buf and its size is
+	// dbmfp->mfp->stat.st_pagesize;
+	if (buf)
+		*buf = bhp->buf;
+	if (size)
+		*size =  dbmfp->mfp->stat.st_pagesize;
+
 	return (0);
 
 err:	/*
@@ -858,6 +870,7 @@ err:	/*
 		}
 	}
 
+	// TODO: (NC) copy if we are freeing the buf
 	/* If alloc_bhp is set, free the memory. */
 	if (alloc_bhp != NULL) {
 		R_LOCK(dbenv, &dbmp->reginfo[n_cache]);
@@ -869,6 +882,17 @@ err:	/*
 	if (gbl_bb_berkdb_enable_memp_timing)
 		bb_memp_hit(start_time_us);
 	return (ret);
+}
+
+static int
+__memp_fget_internal(dbmfp, pgnoaddr, flags, addrp, did_io)
+	DB_MPOOLFILE *dbmfp;
+	db_pgno_t *pgnoaddr;
+	u_int32_t flags;
+	void *addrp;
+	int *did_io;
+{
+	return __memp_fget_buf_internal(dbmfp, pgnoaddr, flags, addrp, did_io, 1, 0);
 }
 
 /*
@@ -1150,18 +1174,20 @@ __memp_init_pgcompact_routines(void)
 int __slow_memp_fget_ns = 0;
 
 /*
- * __memp_fget --
+ * __memp_buf_fget --
  *	Get a page from the file.
  *
- * PUBLIC: int __memp_fget
- * PUBLIC:     __P((DB_MPOOLFILE *, db_pgno_t *, u_int32_t, void *));
+ * PUBLIC: int __memp_buf_fget
+ * PUBLIC:     __P((DB_MPOOLFILE *, db_pgno_t *, u_int32_t, void *, unsigned char **, size_t *));
  */
 int
-__memp_fget(dbmfp, pgnoaddr, flags, addrp)
+__memp_buf_fget(dbmfp, pgnoaddr, flags, addrp, buf, size)
 	DB_MPOOLFILE *dbmfp;
 	db_pgno_t *pgnoaddr;
 	u_int32_t flags;
 	void *addrp;
+	unsigned char **buf;
+	size_t *size;
 {
 	int ret;
 	struct timespec s, rem;
@@ -1183,7 +1209,7 @@ __memp_fget(dbmfp, pgnoaddr, flags, addrp)
 		}
 	}
 
-	ret = __memp_fget_internal(dbmfp, pgnoaddr, flags, addrp, &did_io);
+	ret = __memp_fget_buf_internal(dbmfp, pgnoaddr, flags, addrp, &did_io, buf, size);
 	if (ret || !did_io || !prefault_dbp || !prefault_dbp->log_filename)
 		goto out;
 
@@ -1229,4 +1255,21 @@ __memp_fget(dbmfp, pgnoaddr, flags, addrp)
 out:
 
 	return ret;
+}
+
+/*
+ * __memp_fget --
+ *	Get a page from the file.
+ *
+ * PUBLIC: int __memp_fget
+ * PUBLIC:     __P((DB_MPOOLFILE *, db_pgno_t *, u_int32_t, void *));
+ */
+int
+__memp_fget(dbmfp, pgnoaddr, flags, addrp)
+	DB_MPOOLFILE *dbmfp;
+	db_pgno_t *pgnoaddr;
+	u_int32_t flags;
+	void *addrp;
+{
+	return __memp_buf_fget(dbmfp, pgnoaddr, flags, addrp, 0, 0);
 }

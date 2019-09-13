@@ -352,6 +352,45 @@ __pgdump(DB_ENV *dbenv, int32_t fileid, db_pgno_t pgno)
 	}
 }
 
+int
+__get_page(DB_ENV *dbenv, int32_t fileid, db_pgno_t pgno, unsigned char **buf,
+	size_t *size)
+{
+	int ret;
+	DB *dbp;
+	DB_MPOOLFILE *mpf;
+	PAGE *pagep;
+
+	/* No transaction because we should already have a dbp open. */
+	ret = __dbreg_id_to_db(dbenv, NULL, &dbp, fileid, 0, NULL, 0);
+	if (ret) {
+		fprintf(stderr,
+			"%s: __dbreg_id_to_db %" PRIi32 " error=%d\n", __func__,
+			fileid, ret);
+		return 1;
+	}
+	mpf = dbp->mpf;
+	ret = __memp_buf_fget(mpf, &pgno, 0, &pagep, buf, size);
+	if (ret) {
+		fprintf(stderr,
+			"%s: __memp_fget %s pgno %" PRIu32 " %" PRIi32
+			" error=%d\n", __func__, dbp->fname, pgno, fileid, ret);
+		return 1;
+	}
+	logmsg(LOGMSG_INFO, "%s: page size: %ld\n", __func__, *size);
+	logmsg(LOGMSG_USER, "pgdump> %s id %" PRIi32 " page %" PRIu32 "\n", dbp->fname,
+		fileid, pgno);
+	dopage(dbp, pagep);
+	ret = __memp_fput(mpf, pagep, 0);
+	if (ret) {
+		fprintf(stderr,
+			"%s: mempfput %s pgno %d %" PRIi32 " error=%d\n",
+			__func__, dbp->fname, pgno, fileid, ret);
+		return 1;
+	}
+	return 0;
+}
+
 struct pginfo {
 	int32_t fileid;
 	db_pgno_t pgno;

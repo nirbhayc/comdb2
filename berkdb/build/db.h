@@ -2078,6 +2078,7 @@ struct __db_env {
 	int (*clear_mintruncate_list) __P((DB_ENV *));
 	int (*build_mintruncate_list) __P((DB_ENV *));
 	int (*mintruncate_delete_log) __P((DB_ENV *, int lowfile));
+	int (*get_page) __P((DB_ENV *, int fileid, int pageno, char **buf, size_t *size));
 
 	/*
 	 * Currently, the verbose list is a bit field with room for 32

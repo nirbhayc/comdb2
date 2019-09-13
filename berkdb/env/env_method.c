@@ -100,6 +100,7 @@ int __dbenv_mintruncate_lsn_timestamp __P((DB_ENV*, int file, DB_LSN *lsn, int32
 int __dbenv_dump_mintruncate_list __P((DB_ENV*));
 int __dbenv_clear_mintruncate_list __P((DB_ENV*));
 int __dbenv_build_mintruncate_list __P((DB_ENV*));
+int __dbenv_get_page __P((DB_ENV *, int fileid, int pageno, char **buf, size_t *size));
 
 /*
  * db_env_create --
@@ -279,6 +280,7 @@ __dbenv_init(dbenv)
         dbenv->dump_mintruncate_list = __dbenv_dump_mintruncate_list;
         dbenv->clear_mintruncate_list = __dbenv_clear_mintruncate_list;
         dbenv->build_mintruncate_list = __dbenv_build_mintruncate_list;
+	dbenv->get_page = __dbenv_get_page;
 #ifdef	HAVE_RPC
 	}
 #endif
@@ -1420,4 +1422,17 @@ __dbenv_trigger_close(dbenv, fname)
 	Pthread_cond_signal(&t->cond);
 	Pthread_mutex_unlock(&t->lock);
 	return 0;
+}
+
+extern int __get_page(DB_ENV *dbenv, int32_t fileid, db_pgno_t pgno,
+                      char **buf, size_t *size);
+int
+__dbenv_get_page(dbenv, fileid, pageno, buf, size)
+	DB_ENV *dbenv;
+	int fileid;
+	int pageno;
+	char **buf;
+	size_t *size;
+{
+	return __get_page(dbenv, fileid, pageno, buf, size);
 }

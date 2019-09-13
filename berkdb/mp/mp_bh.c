@@ -466,6 +466,7 @@ __memp_pgread(dbmfp, hp, bhp, can_create, is_recovery_page)
 	 */
 	nr = 0;
 	if (dbmfp->fhp != NULL)
+		// NC: Read the page off the disk
 		if ((ret = __os_io(dbenv, DB_IO_READ,
 		    dbmfp->fhp, bhp->pgno, pagesize, bhp->buf, &nr)) != 0)
 			goto err;

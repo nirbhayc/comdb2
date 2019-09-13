@@ -8477,3 +8477,10 @@ int bdb_list_all_fileids_for_newsi(bdb_state_type *bdb_state,
     free(buf);
     return 0;
 }
+
+int bdb_fetch_page(bdb_state_type *bdb_state, int fileid, int pageno,
+                   char **buf, size_t *size)
+{
+    return bdb_state->dbenv->get_page(bdb_state->dbenv, fileid, pageno, buf,
+                                      size);
+}
