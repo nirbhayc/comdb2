@@ -347,7 +347,7 @@ struct __db_lock {
 	pthread_mutex_t	lsns_mtx;
 	SH_LIST_HEAD(_lsns, __db_lock_lsn) lsns;	/* logical lsns that hold this lock. */
 	u_int32_t nlsns;
-
+	u_int32_t weight;
 #if defined (STACK_AT_LOCK_GEN_INCREMENT) || defined (STACK_AT_GET_LOCK)
 	int			frames;
 	void		*buf[MAX_BERK_STACK_FRAMES];

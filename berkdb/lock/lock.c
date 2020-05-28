@@ -47,6 +47,8 @@ static const char revid[] = "$Id: lock.c,v 11.134 2003/11/18 21:30:38 ubell Exp 
 #include "tohex.h"
 
 
+// TODO(NC): remove me
+#define TRACE_ON_ADDING_LOCKS
 #ifdef TRACE_ON_ADDING_LOCKS
 // no trace on adding resource the first time
 #define PRINTF(res, ...) if (region->res[partition] > 1) printf(__VA_ARGS__)
@@ -72,6 +74,7 @@ extern int gbl_print_deadlock_cycles;
 
 int gbl_berkdb_track_locks = 0;
 int gbl_lock_conflict_trace;
+int gbl_enable_cats = 0;
 unsigned gbl_ddlk = 0;
 
 void (*gbl_bb_log_lock_waits_fn) (const void *, size_t sz, int waitms) = NULL;
@@ -2062,6 +2065,7 @@ __lock_get_internal_int(lt, locker, in_locker, flags, obj, lock_mode, timeout,
 	db_timeout_t timeout;
 	DB_LOCK *lock;
 {
+	printf("enter: %s:%d\n", __func__, __LINE__);
 	if (unlikely(gbl_ddlk && !LF_ISSET(DB_LOCK_NOWAIT) &&
 		rand() % gbl_ddlk == 0)) {
 		return DB_LOCK_DEADLOCK;
@@ -2482,6 +2486,7 @@ __lock_get_internal_int(lt, locker, in_locker, flags, obj, lock_mode, timeout,
 			    * region->nwlk_scale[partition];
 			PRINTF(nwlk_scale, "add  lk:%d part:%d sc:%d\n",
 			    num, partition, region->nwlk_scale[partition]);
+			printf("%s:%d allocating new lock\n", __func__, __LINE__);
 			ret = __os_malloc(dbenv,
 			    sizeof(struct __db_lock) * num, &newl);
 			if (ret != 0) {
@@ -2510,6 +2515,7 @@ __lock_get_internal_int(lt, locker, in_locker, flags, obj, lock_mode, timeout,
 		newl->refcount = 1;
 		newl->mode = lock_mode;
 		newl->lockobj = sh_obj;
+		newl->weight = 0;
 
 		/*
 		 * Now, insert the lock onto its locker's list.
@@ -2615,7 +2621,36 @@ upgrade:
 			    __db_lock);
 			break;
 		case TAIL:
-			SH_TAILQ_INSERT_TAIL(&sh_obj->waiters, newl, links);
+			if (gbl_enable_cats) {
+			  /* Check for the total number of waiters for all
+			   * the lock objects that this locker holds.
+			   */
+			  int weight = 0;
+			  struct __db_lock *lhp; /* pointer to a held lock */
+			  struct __db_lock *lwp; /* pointer to a waiting lock */
+			  for (lhp = SH_LIST_FIRST(&sh_locker->heldby, __db_lock);
+			    lhp != NULL;
+			    lhp = SH_LIST_NEXT(lp, locker_links, __db_lock)) {
+			    for (lwp = SH_TAILQ_FIRST(&lhp->lockobj->waiters,
+			      __db_lock);
+			      lwp != NULL;
+			      lwp = SH_TAILQ_NEXT(lwp, links, __db_lock)) {
+			      weight ++;
+			    }
+			  }
+			  newl->weight = weight;
+			  for (lwp = SH_TAILQ_FIRST(&sh_obj->waiters, __db_lock);
+			    lwp != NULL;
+			    lwp = SH_TAILQ_NEXT(lwp, links, __db_lock)) {
+			    if (lwp->weight < weight) {
+			      break;
+			    }
+			  }
+			  SH_TAILQ_INSERT_AFTER(&sh_obj->waiters, lwp, newl,
+			    links, __db_lock);
+			} else {
+			  SH_TAILQ_INSERT_TAIL(&sh_obj->waiters, newl, links);
+			}
 			break;
 		default:
 			DB_ASSERT(0);

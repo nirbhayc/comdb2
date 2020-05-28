@@ -1935,4 +1935,9 @@ REGISTER_TUNABLE("debug_queuedb",
                  "(Default: off)",
                  TUNABLE_BOOLEAN, &gbl_debug_queuedb, EXPERIMENTAL, NULL, NULL,
                  NULL, NULL);
+
+REGISTER_TUNABLE("enable_cats", "Enable CATS locking strategy (Default: off) ",
+                 TUNABLE_BOOLEAN, &gbl_enable_cats, EXPERIMENTAL, NULL, NULL,
+                 NULL, NULL);
+
 #endif /* _DB_TUNABLES_H */
