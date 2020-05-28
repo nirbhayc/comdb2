@@ -48,7 +48,7 @@ static const char revid[] = "$Id: lock.c,v 11.134 2003/11/18 21:30:38 ubell Exp 
 
 
 // TODO(NC): remove me
-#define TRACE_ON_ADDING_LOCKS
+//#define TRACE_ON_ADDING_LOCKS
 #ifdef TRACE_ON_ADDING_LOCKS
 // no trace on adding resource the first time
 #define PRINTF(res, ...) if (region->res[partition] > 1) printf(__VA_ARGS__)
@@ -2065,7 +2065,7 @@ __lock_get_internal_int(lt, locker, in_locker, flags, obj, lock_mode, timeout,
 	db_timeout_t timeout;
 	DB_LOCK *lock;
 {
-	printf("enter: %s:%d\n", __func__, __LINE__);
+	//printf("enter: %s:%d\n", __func__, __LINE__);
 	if (unlikely(gbl_ddlk && !LF_ISSET(DB_LOCK_NOWAIT) &&
 		rand() % gbl_ddlk == 0)) {
 		return DB_LOCK_DEADLOCK;
@@ -2486,7 +2486,7 @@ __lock_get_internal_int(lt, locker, in_locker, flags, obj, lock_mode, timeout,
 			    * region->nwlk_scale[partition];
 			PRINTF(nwlk_scale, "add  lk:%d part:%d sc:%d\n",
 			    num, partition, region->nwlk_scale[partition]);
-			printf("%s:%d allocating new lock\n", __func__, __LINE__);
+			//printf("%s:%d allocating new lock\n", __func__, __LINE__);
 			ret = __os_malloc(dbenv,
 			    sizeof(struct __db_lock) * num, &newl);
 			if (ret != 0) {
@@ -2630,7 +2630,7 @@ upgrade:
 			  struct __db_lock *lwp; /* pointer to a waiting lock */
 			  for (lhp = SH_LIST_FIRST(&sh_locker->heldby, __db_lock);
 			    lhp != NULL;
-			    lhp = SH_LIST_NEXT(lp, locker_links, __db_lock)) {
+			    lhp = SH_LIST_NEXT(lhp, locker_links, __db_lock)) {
 			    for (lwp = SH_TAILQ_FIRST(&lhp->lockobj->waiters,
 			      __db_lock);
 			      lwp != NULL;
@@ -2638,7 +2638,7 @@ upgrade:
 			      weight ++;
 			    }
 			  }
-			  printf("%s:%d lock wieght : %d\n", __func__, __LINE__, weight);
+			  //printf("%s:%d lock wieght : %d\n", __func__, __LINE__, weight);
 			  newl->weight = weight;
 			  for (lwp = SH_TAILQ_FIRST(&sh_obj->waiters, __db_lock);
 			    lwp != NULL;
@@ -2647,8 +2647,14 @@ upgrade:
 			      break;
 			    }
 			  }
-			  SH_TAILQ_INSERT_AFTER(&sh_obj->waiters, lwp, newl,
-			    links, __db_lock);
+			  if (lwp) {
+			    //printf("%s:%d inserting after\n", __func__, __LINE__);
+			    SH_TAILQ_INSERT_AFTER(&sh_obj->waiters, lwp, newl,
+			      links, __db_lock);
+			  } else {
+			    //printf("%s:%d inserting at tail\n", __func__, __LINE__);
+			    SH_TAILQ_INSERT_TAIL(&sh_obj->waiters, newl, links);
+			  }
 			} else {
 			  SH_TAILQ_INSERT_TAIL(&sh_obj->waiters, newl, links);
 			}
@@ -2668,7 +2674,7 @@ upgrade:
 		if (gbl_lock_conflict_trace) {
 			static u_int32_t conftime = 0;
 			u_int32_t now;
-
+ 
 			__os_clock(dbenv, &now, NULL);
 
 			if ((now - conftime) > 1) {
