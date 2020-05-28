@@ -74,7 +74,7 @@ extern int gbl_print_deadlock_cycles;
 
 int gbl_berkdb_track_locks = 0;
 int gbl_lock_conflict_trace;
-int gbl_enable_cats = 0;
+int gbl_enable_cats = 1;
 unsigned gbl_ddlk = 0;
 
 void (*gbl_bb_log_lock_waits_fn) (const void *, size_t sz, int waitms) = NULL;
@@ -2638,6 +2638,7 @@ upgrade:
 			      weight ++;
 			    }
 			  }
+			  printf("%s:%d lock wieght : %d\n", __func__, __LINE__, weight);
 			  newl->weight = weight;
 			  for (lwp = SH_TAILQ_FIRST(&sh_obj->waiters, __db_lock);
 			    lwp != NULL;
