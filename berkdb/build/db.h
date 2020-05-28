@@ -397,6 +397,7 @@ struct __db_trigger_subscription;
 #define	DB_LOCK_MINWRITE_EVER	12	/* Select locker with min
 					   writelocks including old
 					   reincarnations. */
+/* NC: Read these flags */
 #define	DB_LOCK_MAX		12	/* Max deadlock mode. */
 
 /* Flag values for lock_vec(), lock_get(). */

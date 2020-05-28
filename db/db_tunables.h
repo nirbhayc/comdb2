@@ -1628,5 +1628,8 @@ REGISTER_TUNABLE("abort_on_missing_osql_session",
                  "(Default: off)",
                  TUNABLE_BOOLEAN, &gbl_abort_on_missing_osql_session,
                  EXPERIMENTAL | INTERNAL, NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("enable_cats", "Enable CATS locking strategy (Default: off)",
+                 TUNABLE_BOOLEAN, &gbl_enable_cats, EXPERIMENTAL, NULL, NULL,
+                 NULL, NULL);
 
 #endif /* _DB_TUNABLES_H */
