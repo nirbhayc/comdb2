@@ -74,6 +74,8 @@ int gbl_berkdb_track_locks = 0;
 int gbl_lock_conflict_trace;
 unsigned gbl_ddlk = 0;
 
+void comdb2_dump_rep_blocker(unsigned int);
+
 void (*gbl_bb_log_lock_waits_fn) (const void *, size_t sz, int waitms) = NULL;
 
 static int __lock_freelock __P((DB_LOCKTAB *,
@@ -2605,6 +2607,14 @@ upgrade:
 			++sh_obj->generation;
 			unlock_detector(region);
 		}
+
+                extern u_int32_t gbl_rep_lockid;
+                extern struct __db_lock *gbl_rep_last_waiting_lock;
+
+                if (locker == gbl_rep_lockid) {
+                  gbl_rep_last_waiting_lock = newl;
+                }
+
 		switch (action) {
 		case HEAD:
 			SH_TAILQ_INSERT_HEAD(&sh_obj->waiters, newl, links,
@@ -2749,6 +2759,7 @@ upgrade:
 		 * detector should be run.
 		 */
 		if (region->detect != DB_LOCK_NORUN && !no_dd)
+                        // deadlock detection appends array
 			__lock_detect(dbenv, region->detect, NULL);
 
 		if (gbl_bb_berkdb_enable_lock_timing) {
@@ -2912,6 +2923,26 @@ err:
 		__os_free(dbenv, holdarr);
 
 	return (ret);
+}
+
+void dump_rep_blockers(void)
+{
+	extern struct __db_lock *gbl_rep_last_waiting_lock;
+	struct __db_lock *hlp, *lp;
+	DB_LOCKOBJ *obj;
+
+	if (!gbl_rep_last_waiting_lock)
+		return;
+
+	obj = gbl_rep_last_waiting_lock->lockobj;
+	if (!obj)
+		return;
+
+	for (hlp = SH_TAILQ_FIRST(&obj->holders, __db_lock);
+		hlp != NULL; hlp = SH_TAILQ_NEXT(hlp, links, __db_lock))
+	{
+		comdb2_dump_rep_blocker(hlp->holderp->id);
+	}
 }
 
 static inline int
@@ -4421,6 +4452,7 @@ __lock_remove_waiter(lt, sh_obj, lockp, status)
 	/*
 	 * Wake whoever is waiting on this lock.
 	 */
+        // unlock the blocked waiter
 	if (do_wakeup)
 		MUTEX_UNLOCK(lt->dbenv, &lockp->mutex);
 }

@@ -1540,6 +1540,11 @@ void clean_exit(void)
         thedb->view_hash = NULL;
     }
 
+    if (thedb->rep_blocker_hash) {
+        void free_rep_blocker_hash(hash_t *rep_blocker_hash);
+        free_rep_blocker_hash(thedb->rep_blocker_hash);
+    }
+
     cleanup_interned_strings();
     cleanup_peer_hash();
     free(gbl_dbdir);

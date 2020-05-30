@@ -174,6 +174,9 @@ enum { AUTHENTICATE_READ = 1, AUTHENTICATE_WRITE = 2 };
 static int chunk_transaction(BtCursor *pCur, struct sqlclntstate *clnt,
                              struct sql_thread *thd);
 
+static int rep_blocker_add(struct dbenv *dbenv, struct sqlclntstate *clnt);
+static int rep_blocker_remove(struct dbenv *dbenv, struct sqlclntstate *clnt);
+
 CurRange *currange_new()
 {
     CurRange *rc = (CurRange *)malloc(sizeof(CurRange));
@@ -8970,6 +8973,7 @@ void cancel_sql_statement(int id)
         if (thd->id == id && thd->clnt) {
             found = 1;
             thd->clnt->stop_this_statement = 1;
+            break;
         }
     }
     Pthread_mutex_unlock(&gbl_sql_lock);
@@ -9081,7 +9085,6 @@ int get_curtran_flags(bdb_state_type *bdb_state, struct sqlclntstate *clnt,
                       uint32_t flags)
 {
     cursor_tran_t *curtran_out = NULL;
-    int rcode = 0;
     int retries = 0;
     uint32_t curgen;
     int bdberr = 0;
@@ -9168,11 +9171,13 @@ retry:
 
             bdb_put_cursortran(bdb_state, curtran_out, curtran_flags, &bdberr);
             clnt->dbtran.cursor_tran = NULL;
-            rcode = rc;
+            return rc;
         }
     }
 
-    return rcode;
+    rep_blocker_add(thedb, clnt);
+
+    return 0;
 }
 
 int get_curtran(bdb_state_type *bdb_state, struct sqlclntstate *clnt)
@@ -9212,6 +9217,8 @@ int put_curtran_flags(bdb_state_type *bdb_state, struct sqlclntstate *clnt,
         logmsg(LOGMSG_DEBUG, "%s called without curtran\n", __func__);
         return 0;
     }
+
+    rep_blocker_remove(thedb, clnt);
 
     rc = bdb_put_cursortran(bdb_state, clnt->dbtran.cursor_tran, curtran_flags,
                             &bdberr);
@@ -9383,7 +9390,6 @@ static int recover_deadlock_flags_int(bdb_state_type *bdb_state,
     unlock_bdb_cursors(thd, bdbcur, &bdberr);
 
     curtran_flags = CURTRAN_RECOVERY;
-
     /* free curtran */
     rc = put_curtran_flags(thedb->bdb_env, clnt, curtran_flags);
     assert(bdb_lockref() == 0);
@@ -12604,3 +12610,105 @@ int clnt_check_bdb_lock_desired(struct sqlclntstate *clnt)
 
     return 0;
 }
+
+/* Mutex to protect access to repl_blocker hash */
+static pthread_mutex_t rep_blocker_mu = PTHREAD_MUTEX_INITIALIZER;
+
+struct rep_blocker {
+    unsigned int lockerid;
+    const char *sql;
+    uint32_t id;
+};
+
+void free_rep_blocker_hash(hash_t *rep_blocker_hash)
+{
+    void *ent;
+    unsigned int bkt;
+    struct rep_blocker *blocker;
+
+    Pthread_mutex_lock(&rep_blocker_mu);
+
+    for (blocker =
+             (struct rep_blocker *)hash_first(rep_blocker_hash, &ent, &bkt);
+         blocker; blocker = (struct rep_blocker *)hash_next(rep_blocker_hash,
+                                                            &ent, &bkt)) {
+        free((char *)blocker->sql);
+    }
+    hash_free(rep_blocker_hash);
+    rep_blocker_hash = 0;
+
+    Pthread_mutex_unlock(&rep_blocker_mu);
+}
+
+int rep_blocker_cmp_func(const void *key1, const void *key2, int len)
+{
+    unsigned int *lid1 = (unsigned int *)key1;
+    unsigned int *lid2 = (unsigned int *)key2;
+
+    return memcmp(lid1, lid2, sizeof(unsigned int));
+}
+
+static int rep_blocker_add(struct dbenv *dbenv, struct sqlclntstate *clnt)
+{
+    if (!dbenv->rep_blocker_hash) {
+        dbenv->rep_blocker_hash =
+            hash_init_user((hashfunc_t *)hash_default_fixedwidth,
+                           rep_blocker_cmp_func, 0, sizeof(unsigned int));
+    }
+
+    struct rep_blocker *newent;
+    newent = malloc(sizeof(struct rep_blocker));
+    if (!newent) {
+        logmsg(LOGMSG_ERROR, "%s:%d out-of-memory\n", __func__, __LINE__);
+        return 1;
+    }
+
+    newent->lockerid = bdb_curtran_get_lockerid(clnt->dbtran.cursor_tran);
+    newent->sql = strdup(clnt->sql);
+    newent->id = -1;
+
+    Pthread_mutex_lock(&rep_blocker_mu);
+    hash_add(dbenv->rep_blocker_hash, newent);
+    Pthread_mutex_unlock(&rep_blocker_mu);
+    return 0;
+}
+
+static int rep_blocker_remove(struct dbenv *dbenv, struct sqlclntstate *clnt)
+{
+    if (!dbenv->rep_blocker_hash) {
+        return 0;
+    }
+
+    unsigned int lockerid = bdb_curtran_get_lockerid(clnt->dbtran.cursor_tran);
+    Pthread_mutex_lock(&rep_blocker_mu);
+    hash_del(thedb->rep_blocker_hash, &lockerid);
+    Pthread_mutex_unlock(&rep_blocker_mu);
+    return 0;
+}
+
+int rep_blocker_update_id(struct dbenv *dbenv, struct sqlclntstate *clnt)
+{
+    if (!dbenv->rep_blocker_hash) {
+        return 0;
+    }
+
+    unsigned int lockerid = bdb_curtran_get_lockerid(clnt->dbtran.cursor_tran);
+    Pthread_mutex_lock(&rep_blocker_mu);
+    struct rep_blocker *ent = hash_find(thedb->rep_blocker_hash, &lockerid);
+    if (ent) {
+        ent->id = clnt->thd->sqlthd->id;
+    }
+    Pthread_mutex_unlock(&rep_blocker_mu);
+    return 0;
+}
+
+void comdb2_dump_rep_blocker(unsigned int lockerid)
+{
+    Pthread_mutex_lock(&rep_blocker_mu);
+    struct rep_blocker *ent = hash_find(thedb->rep_blocker_hash, &lockerid);
+    if (ent) {
+        logmsg(LOGMSG_USER, "id: %u sql: %s\n", ent->id, ent->sql);
+    }
+    Pthread_mutex_unlock(&rep_blocker_mu);
+}
+

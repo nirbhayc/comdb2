@@ -213,6 +213,8 @@ static int execute_sql_query_offload(struct sqlthdstate *,
                                      struct sqlclntstate *);
 static int record_query_cost(struct sql_thread *, struct sqlclntstate *);
 
+int rep_blocker_update_id(struct dbenv *dbenv, struct sqlclntstate *clnt);
+
 static int sql_debug_logf_int(struct sqlclntstate *clnt, const char *func,
                               int line, const char *fmt, va_list args)
 {
@@ -5059,6 +5061,9 @@ void sqlengine_work_appsock(void *thddata, void *work)
     /* assign this query a unique id */
     sql_get_query_id(sqlthd);
 
+    /* Update the query id */
+    rep_blocker_update_id(thedb, clnt);
+
     /* actually execute the query */
     thrman_setfd(thd->thr_self, sbuf2fileno(clnt->sb));
 
@@ -5075,6 +5080,7 @@ void sqlengine_work_appsock(void *thddata, void *work)
     osql_shadtbl_done_query(thedb->bdb_env, clnt);
     thrman_setfd(thd->thr_self, -1);
     sql_reset_sqlthread(sqlthd);
+
     /* this is a compromise; we release the curtran here, even though
        we might have a begin/commit transaction pending
        any query inside the begin/commit will be performed under its
