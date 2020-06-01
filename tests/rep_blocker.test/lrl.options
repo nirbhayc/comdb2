@@ -2,4 +2,4 @@
 # node downgrading - new master will resume schemachange"
 libevent off
 # dump sql statements blocking replication for more than a second
-dump_sql_on_repwait 1
+dump_sql_on_repwait_sec 1

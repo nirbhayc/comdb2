@@ -1935,9 +1935,9 @@ REGISTER_TUNABLE("debug_queuedb",
                  "(Default: off)",
                  TUNABLE_BOOLEAN, &gbl_debug_queuedb, EXPERIMENTAL, NULL, NULL,
                  NULL, NULL);
-REGISTER_TUNABLE("dump_sql_on_repwait",
+REGISTER_TUNABLE("dump_sql_on_repwait_sec",
                  "Dump sql queries that are blocking the replication thread "
                  "for more than this duration (Default: 10secs)",
-                 TUNABLE_INTEGER, &gbl_dump_sql_on_repwait, EXPERIMENTAL, NULL,
+                 TUNABLE_INTEGER, &gbl_dump_sql_on_repwait_sec, EXPERIMENTAL, NULL,
                  NULL, NULL, NULL);
 #endif /* _DB_TUNABLES_H */

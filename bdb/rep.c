@@ -90,7 +90,7 @@ int gbl_ignore_lost_master_time = 0;
 int gbl_prefault_latency = 0;
 int gbl_long_log_truncation_warn_thresh_sec = INT_MAX;
 int gbl_long_log_truncation_abort_thresh_sec = INT_MAX;
-int gbl_dump_sql_on_repwait = 10; // seconds
+int gbl_dump_sql_on_repwait_sec = 10;
 
 extern struct thdpool *gbl_udppfault_thdpool;
 extern int gbl_commit_delay_trace;
@@ -5216,7 +5216,7 @@ void send_downgrade_and_lose(bdb_state_type *bdb_state)
 }
 
 extern int gbl_dump_locks_on_repwait;
-extern int gbl_dump_sql_on_repwait;
+extern int gbl_dump_sql_on_repwait_sec;
 extern int gbl_lock_get_list_start;
 int bdb_clean_pglogs_queues(bdb_state_type *bdb_state, DB_LSN lsn,
                             int truncate);
@@ -5455,7 +5455,7 @@ void *watcher_thread(void *arg)
 
             if ((comdb2_time_epoch() -
                  bdb_state->repinfo->rep_process_message_start_time) >
-                gbl_dump_sql_on_repwait) {
+                gbl_dump_sql_on_repwait_sec) {
                 logmsg(LOGMSG_USER, "SQL statements currently blocking the "
                                     "replication thread:\n");
                 dump_rep_blockers();
