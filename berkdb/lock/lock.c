@@ -2759,7 +2759,6 @@ upgrade:
 		 * detector should be run.
 		 */
 		if (region->detect != DB_LOCK_NORUN && !no_dd)
-                        // deadlock detection appends array
 			__lock_detect(dbenv, region->detect, NULL);
 
 		if (gbl_bb_berkdb_enable_lock_timing) {
@@ -4452,7 +4451,6 @@ __lock_remove_waiter(lt, sh_obj, lockp, status)
 	/*
 	 * Wake whoever is waiting on this lock.
 	 */
-        // unlock the blocked waiter
 	if (do_wakeup)
 		MUTEX_UNLOCK(lt->dbenv, &lockp->mutex);
 }

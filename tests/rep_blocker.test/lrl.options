@@ -1,4 +1,4 @@
-# turn off libeven to avoid ocassional "failed with rc 240 Master
+# turn off libevent to avoid ocassional "failed with rc 240 Master
 # node downgrading - new master will resume schemachange"
 libevent off
 # dump sql statements blocking replication for more than a second
