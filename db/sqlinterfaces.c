@@ -213,8 +213,6 @@ static int execute_sql_query_offload(struct sqlthdstate *,
                                      struct sqlclntstate *);
 static int record_query_cost(struct sql_thread *, struct sqlclntstate *);
 
-int rep_blocker_update_id(struct sqlclntstate *clnt);
-
 static int sql_debug_logf_int(struct sqlclntstate *clnt, const char *func,
                               int line, const char *fmt, va_list args)
 {
@@ -5060,9 +5058,6 @@ void sqlengine_work_appsock(void *thddata, void *work)
 
     /* assign this query a unique id */
     sql_get_query_id(sqlthd);
-
-    /* Update the query id */
-    rep_blocker_update_id(clnt);
 
     /* actually execute the query */
     thrman_setfd(thd->thr_self, sbuf2fileno(clnt->sb));
