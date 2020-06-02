@@ -42,7 +42,7 @@ fi
 cmd_count=`grep "select \*, sleep" ${logfile} | wc -l`
 # we should expect at least 2 blocking commands
 if  [[ ${cmd_count} -lt 2 ]]; then
-    echo "invalid number of blocking commands (got: ${cmd_count}, expected: 2)"
+    echo "invalid number of blocking commands (got: ${cmd_count}, expected >= 2)"
     exit 1
 fi
 

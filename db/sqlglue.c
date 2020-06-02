@@ -12652,7 +12652,7 @@ int rep_blocker_cmp_func(const void *key1, const void *key2, int len)
     unsigned int *lid1 = (unsigned int *)key1;
     unsigned int *lid2 = (unsigned int *)key2;
 
-    return *lid1 == *lid2;
+    return memcmp(lid1, lid2, sizeof(unsigned int));
 }
 
 static int rep_blocker_add(struct sqlclntstate *clnt)
