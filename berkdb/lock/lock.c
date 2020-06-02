@@ -2608,12 +2608,12 @@ upgrade:
 			unlock_detector(region);
 		}
 
-                extern u_int32_t gbl_rep_lockid;
-                extern struct __db_lock *gbl_rep_last_waiting_lock;
+		extern u_int32_t gbl_rep_lockid;
+		extern struct __db_lock *gbl_rep_last_waiting_lock;
 
-                if (locker == gbl_rep_lockid) {
-                  gbl_rep_last_waiting_lock = newl;
-                }
+		if (locker == gbl_rep_lockid) {
+			gbl_rep_last_waiting_lock = newl;
+		}
 
 		switch (action) {
 		case HEAD:
