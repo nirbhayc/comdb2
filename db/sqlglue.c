@@ -174,8 +174,8 @@ enum { AUTHENTICATE_READ = 1, AUTHENTICATE_WRITE = 2 };
 static int chunk_transaction(BtCursor *pCur, struct sqlclntstate *clnt,
                              struct sql_thread *thd);
 
-static int rep_blocker_add(struct dbenv *dbenv, struct sqlclntstate *clnt);
-static int rep_blocker_remove(struct dbenv *dbenv, struct sqlclntstate *clnt);
+static int rep_blocker_add(struct sqlclntstate *clnt);
+static int rep_blocker_remove(struct sqlclntstate *clnt);
 
 CurRange *currange_new()
 {
@@ -9175,7 +9175,7 @@ retry:
         }
     }
 
-    rep_blocker_add(thedb, clnt);
+    rep_blocker_add(clnt);
 
     return 0;
 }
@@ -9218,7 +9218,7 @@ int put_curtran_flags(bdb_state_type *bdb_state, struct sqlclntstate *clnt,
         return 0;
     }
 
-    rep_blocker_remove(thedb, clnt);
+    rep_blocker_remove(clnt);
 
     rc = bdb_put_cursortran(bdb_state, clnt->dbtran.cursor_tran, curtran_flags,
                             &bdberr);
@@ -12611,6 +12611,10 @@ int clnt_check_bdb_lock_desired(struct sqlclntstate *clnt)
     return 0;
 }
 
+
+/* All clnt's blocking the replication thread */
+hash_t *rep_blocker_hash;
+
 /* Mutex to protect access to repl_blocker hash */
 static pthread_mutex_t rep_blocker_mu = PTHREAD_MUTEX_INITIALIZER;
 
@@ -12620,7 +12624,7 @@ struct rep_blocker {
     uint32_t id;
 };
 
-void free_rep_blocker_hash(hash_t *rep_blocker_hash)
+void free_rep_blocker_hash()
 {
     void *ent;
     unsigned int bkt;
@@ -12645,14 +12649,13 @@ int rep_blocker_cmp_func(const void *key1, const void *key2, int len)
     unsigned int *lid1 = (unsigned int *)key1;
     unsigned int *lid2 = (unsigned int *)key2;
 
-    return memcmp(lid1, lid2, sizeof(unsigned int));
+    return *lid1 == *lid2;
 }
 
-static int rep_blocker_add(struct dbenv *dbenv, struct sqlclntstate *clnt)
+static int rep_blocker_add(struct sqlclntstate *clnt)
 {
-    if (!dbenv->rep_blocker_hash) {
-        dbenv->rep_blocker_hash =
-            hash_init_user((hashfunc_t *)hash_default_fixedwidth,
+    if (!rep_blocker_hash) {
+        rep_blocker_hash = hash_init_user((hashfunc_t *)hash_default_fixedwidth,
                            rep_blocker_cmp_func, 0, sizeof(unsigned int));
     }
 
@@ -12668,33 +12671,33 @@ static int rep_blocker_add(struct dbenv *dbenv, struct sqlclntstate *clnt)
     newent->id = -1;
 
     Pthread_mutex_lock(&rep_blocker_mu);
-    hash_add(dbenv->rep_blocker_hash, newent);
+    hash_add(rep_blocker_hash, newent);
     Pthread_mutex_unlock(&rep_blocker_mu);
     return 0;
 }
 
-static int rep_blocker_remove(struct dbenv *dbenv, struct sqlclntstate *clnt)
+static int rep_blocker_remove(struct sqlclntstate *clnt)
 {
-    if (!dbenv->rep_blocker_hash) {
+    if (!rep_blocker_hash) {
         return 0;
     }
 
     unsigned int lockerid = bdb_curtran_get_lockerid(clnt->dbtran.cursor_tran);
     Pthread_mutex_lock(&rep_blocker_mu);
-    hash_del(thedb->rep_blocker_hash, &lockerid);
+    hash_del(rep_blocker_hash, &lockerid);
     Pthread_mutex_unlock(&rep_blocker_mu);
     return 0;
 }
 
-int rep_blocker_update_id(struct dbenv *dbenv, struct sqlclntstate *clnt)
+int rep_blocker_update_id(struct sqlclntstate *clnt)
 {
-    if (!dbenv->rep_blocker_hash) {
+    if (!rep_blocker_hash || !clnt->dbtran.cursor_tran) {
         return 0;
     }
 
     unsigned int lockerid = bdb_curtran_get_lockerid(clnt->dbtran.cursor_tran);
     Pthread_mutex_lock(&rep_blocker_mu);
-    struct rep_blocker *ent = hash_find(thedb->rep_blocker_hash, &lockerid);
+    struct rep_blocker *ent = hash_find(rep_blocker_hash, &lockerid);
     if (ent) {
         ent->id = clnt->thd->sqlthd->id;
     }
@@ -12705,7 +12708,7 @@ int rep_blocker_update_id(struct dbenv *dbenv, struct sqlclntstate *clnt)
 void comdb2_dump_rep_blocker(unsigned int lockerid)
 {
     Pthread_mutex_lock(&rep_blocker_mu);
-    struct rep_blocker *ent = hash_find(thedb->rep_blocker_hash, &lockerid);
+    struct rep_blocker *ent = hash_find(rep_blocker_hash, &lockerid);
     if (ent) {
         logmsg(LOGMSG_USER, "id: %u sql: %s\n", ent->id, ent->sql);
     }

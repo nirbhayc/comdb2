@@ -789,6 +789,7 @@ int destroy_plugins(void);
 void register_plugin_tunables(void);
 int install_static_plugins(void);
 int run_init_plugins(int phase);
+void free_rep_blocker_hash();
 
 inline int getkeyrecnums(const dbtable *tbl, int ixnum)
 {
@@ -1540,10 +1541,7 @@ void clean_exit(void)
         thedb->view_hash = NULL;
     }
 
-    if (thedb->rep_blocker_hash) {
-        void free_rep_blocker_hash(hash_t *rep_blocker_hash);
-        free_rep_blocker_hash(thedb->rep_blocker_hash);
-    }
+    free_rep_blocker_hash();
 
     cleanup_interned_strings();
     cleanup_peer_hash();

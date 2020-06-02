@@ -986,9 +986,6 @@ struct dbenv {
     LISTC_T(struct message_handler) message_handlers;
 
     comdb2_queue_consumer_t *queue_consumer_handlers[CONSUMER_TYPE_LAST];
-
-    /* All clnt's blocking the replication thread */
-    hash_t *rep_blocker_hash;
 };
 
 extern struct dbenv *thedb;
