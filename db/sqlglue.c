@@ -12611,57 +12611,28 @@ int clnt_check_bdb_lock_desired(struct sqlclntstate *clnt)
     return 0;
 }
 
-/* All clnt's blocking the replication thread */
-hash_t *rep_blocker_hash;
-
-/* Mutex to protect access to repl_blocker hash */
+/* Mutex to protect access to repl_blockers list */
 static pthread_mutex_t rep_blocker_mu = PTHREAD_MUTEX_INITIALIZER;
+static pthread_once_t rep_blocker_once = PTHREAD_ONCE_INIT;
 
 struct rep_blocker {
     unsigned int lockerid;
     const char *sql;
     uint32_t id;
+    LINKC_T(struct rep_blocker) lnk;
 };
 
-void free_rep_blocker_hash()
+/* All clnt's blocking the replication thread */
+LISTC_T(struct rep_blocker) rep_blockers;
+
+void init_rep_blockers_list(void)
 {
-    void *ent;
-    unsigned int bkt;
-    struct rep_blocker *blocker;
-
-    if (!rep_blocker_hash) {
-        return;
-    }
-
-    Pthread_mutex_lock(&rep_blocker_mu);
-
-    for (blocker =
-             (struct rep_blocker *)hash_first(rep_blocker_hash, &ent, &bkt);
-         blocker; blocker = (struct rep_blocker *)hash_next(rep_blocker_hash,
-                                                            &ent, &bkt)) {
-        free((char *)blocker->sql);
-    }
-    hash_free(rep_blocker_hash);
-    rep_blocker_hash = 0;
-
-    Pthread_mutex_unlock(&rep_blocker_mu);
-}
-
-int rep_blocker_cmp_func(const void *key1, const void *key2, int len)
-{
-    unsigned int *lid1 = (unsigned int *)key1;
-    unsigned int *lid2 = (unsigned int *)key2;
-
-    return memcmp(lid1, lid2, sizeof(unsigned int));
+    listc_init(&rep_blockers, offsetof(struct rep_blocker, lnk));
 }
 
 static int rep_blocker_add(struct sqlclntstate *clnt)
 {
-    if (!rep_blocker_hash) {
-        rep_blocker_hash =
-            hash_init_user((hashfunc_t *)hash_default_fixedwidth,
-                           rep_blocker_cmp_func, 0, sizeof(unsigned int));
-    }
+    pthread_once(&rep_blocker_once, init_rep_blockers_list);
 
     struct rep_blocker *newent;
     newent = malloc(sizeof(struct rep_blocker));
@@ -12675,35 +12646,45 @@ static int rep_blocker_add(struct sqlclntstate *clnt)
     newent->id = -1;
 
     Pthread_mutex_lock(&rep_blocker_mu);
-    hash_add(rep_blocker_hash, newent);
+    listc_abl(&rep_blockers, newent);
     Pthread_mutex_unlock(&rep_blocker_mu);
     return 0;
 }
 
 static int rep_blocker_remove(struct sqlclntstate *clnt)
 {
-    if (!rep_blocker_hash) {
-        return 0;
-    }
-
     unsigned int lockerid = bdb_curtran_get_lockerid(clnt->dbtran.cursor_tran);
+    struct rep_blocker *ent;
+
     Pthread_mutex_lock(&rep_blocker_mu);
-    hash_del(rep_blocker_hash, &lockerid);
+    LISTC_FOR_EACH(&rep_blockers, ent, lnk)
+    {
+        if (ent->lockerid == lockerid) {
+            listc_rfl(&rep_blockers, ent);
+            Pthread_mutex_unlock(&rep_blocker_mu);
+            return 0;
+        }
+    }
     Pthread_mutex_unlock(&rep_blocker_mu);
     return 0;
 }
 
 int rep_blocker_update_id(struct sqlclntstate *clnt)
 {
-    if (!rep_blocker_hash || !clnt->dbtran.cursor_tran) {
+    if (!clnt->dbtran.cursor_tran) {
         return 0;
     }
 
     unsigned int lockerid = bdb_curtran_get_lockerid(clnt->dbtran.cursor_tran);
+    struct rep_blocker *ent;
+
     Pthread_mutex_lock(&rep_blocker_mu);
-    struct rep_blocker *ent = hash_find(rep_blocker_hash, &lockerid);
-    if (ent) {
-        ent->id = clnt->thd->sqlthd->id;
+    LISTC_FOR_EACH(&rep_blockers, ent, lnk)
+    {
+        if (ent->lockerid == lockerid) {
+            ent->id = clnt->thd->sqlthd->id;
+            break;
+        }
     }
     Pthread_mutex_unlock(&rep_blocker_mu);
     return 0;
@@ -12711,10 +12692,15 @@ int rep_blocker_update_id(struct sqlclntstate *clnt)
 
 void comdb2_dump_rep_blocker(unsigned int lockerid)
 {
+    struct rep_blocker *ent;
+
     Pthread_mutex_lock(&rep_blocker_mu);
-    struct rep_blocker *ent = hash_find(rep_blocker_hash, &lockerid);
-    if (ent) {
-        logmsg(LOGMSG_USER, "id: %u sql: %s\n", ent->id, ent->sql);
+    LISTC_FOR_EACH(&rep_blockers, ent, lnk)
+    {
+        if (ent->lockerid == lockerid) {
+            logmsg(LOGMSG_USER, "id: %u sql: %s\n", ent->id, ent->sql);
+            break;
+        }
     }
     Pthread_mutex_unlock(&rep_blocker_mu);
 }
