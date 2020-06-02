@@ -12611,7 +12611,6 @@ int clnt_check_bdb_lock_desired(struct sqlclntstate *clnt)
     return 0;
 }
 
-
 /* All clnt's blocking the replication thread */
 hash_t *rep_blocker_hash;
 
@@ -12629,6 +12628,10 @@ void free_rep_blocker_hash()
     void *ent;
     unsigned int bkt;
     struct rep_blocker *blocker;
+
+    if (!rep_blocker_hash) {
+        return;
+    }
 
     Pthread_mutex_lock(&rep_blocker_mu);
 
@@ -12655,7 +12658,8 @@ int rep_blocker_cmp_func(const void *key1, const void *key2, int len)
 static int rep_blocker_add(struct sqlclntstate *clnt)
 {
     if (!rep_blocker_hash) {
-        rep_blocker_hash = hash_init_user((hashfunc_t *)hash_default_fixedwidth,
+        rep_blocker_hash =
+            hash_init_user((hashfunc_t *)hash_default_fixedwidth,
                            rep_blocker_cmp_func, 0, sizeof(unsigned int));
     }
 
@@ -12714,4 +12718,3 @@ void comdb2_dump_rep_blocker(unsigned int lockerid)
     }
     Pthread_mutex_unlock(&rep_blocker_mu);
 }
-
