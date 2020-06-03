@@ -157,8 +157,7 @@ void set_analyze_abort_requested();
 void dump_log_event_counts(void);
 void bdb_dumptrans(bdb_state_type *bdb_state);
 void bdb_locker_summary(void *_bdb_state);
-int printlog(bdb_state_type *bdb_state, int startfile, int startoff,
-             int endfile, int endoff);
+int printlog(bdb_state_type *bdb_state, int startfile, int startoff, int endfile, int endoff);
 void dump_remote_policy();
 
 static const char *HELP_MAIN[] = {
@@ -247,7 +246,8 @@ static const char *HELP_SQL[] = {
     "cancel N           - cancel running statement with id N",
     "cancelcnonce N     - cancel running statement with cnonce N",
     "wrtimeout N        - set write timeout in ms",
-    "help               - this information", NULL,
+    "help               - this information",
+    NULL,
 };
 static const char *HELP_SCHEMA[] = {
     "Commands for inspecting and altering schema information:-",

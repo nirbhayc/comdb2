@@ -5453,8 +5453,7 @@ void *watcher_thread(void *arg)
                     (bdb_state->callback->threaddump_rtn)();
             }
 
-            if ((comdb2_time_epoch() -
-                 bdb_state->repinfo->rep_process_message_start_time) >
+            if ((comdb2_time_epoch() - bdb_state->repinfo->rep_process_message_start_time) >
                 gbl_dump_sql_on_repwait_sec) {
                 logmsg(LOGMSG_USER, "SQL statements currently blocking the "
                                     "replication thread:\n");
