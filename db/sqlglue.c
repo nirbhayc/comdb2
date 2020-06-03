@@ -12612,7 +12612,7 @@ void comdb2_dump_rep_blocker(unsigned int lockerid)
     Pthread_mutex_lock(&gbl_sql_lock);
     LISTC_FOR_EACH(&thedb->sql_threads, thd, lnk)
     {
-        if (!thd->clnt->dbtran.cursor_tran)
+        if (!(thd->clnt) || !(thd->clnt->dbtran.cursor_tran))
             continue;
         clnt_lockerid = bdb_curtran_get_lockerid(thd->clnt->dbtran.cursor_tran);
         if (lockerid == clnt_lockerid) {
