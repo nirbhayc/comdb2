@@ -107,7 +107,7 @@ void create_master_lease_thread(bdb_state_type *bdb_state);
 int gbl_net_lmt_upd_incoherent_nodes = 70;
 
 char *lsn_to_str(char lsn_str[], DB_LSN *lsn);
-void dump_rep_blockers(void);
+void comdb2_dump_blockers(DB_ENV *);
 
 static int bdb_wait_for_seqnum_from_node_nowait_int(bdb_state_type *bdb_state,
                                                     seqnum_type *seqnum,
@@ -5457,7 +5457,7 @@ void *watcher_thread(void *arg)
                 gbl_dump_sql_on_repwait_sec) {
                 logmsg(LOGMSG_USER, "SQL statements currently blocking the "
                                     "replication thread:\n");
-                dump_rep_blockers();
+                comdb2_dump_blockers(bdb_state->dbenv);
             }
         }
 

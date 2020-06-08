@@ -12604,7 +12604,7 @@ int clnt_check_bdb_lock_desired(struct sqlclntstate *clnt)
     return 0;
 }
 
-void comdb2_dump_rep_blocker(unsigned int lockerid)
+void comdb2_dump_blocker(unsigned int lockerid)
 {
     struct sql_thread *thd;
     unsigned int clnt_lockerid;

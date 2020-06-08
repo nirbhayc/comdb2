@@ -74,7 +74,7 @@ int gbl_berkdb_track_locks = 0;
 int gbl_lock_conflict_trace;
 unsigned gbl_ddlk = 0;
 
-void comdb2_dump_rep_blocker(unsigned int);
+void comdb2_dump_blocker(unsigned int);
 
 void (*gbl_bb_log_lock_waits_fn) (const void *, size_t sz, int waitms) = NULL;
 
@@ -109,6 +109,8 @@ static int __lock_fix_list __P((DB_ENV *, DBT *, u_int32_t, u_int8_t));
 static const char __db_lock_err[] = "Lock table is out of available %s";
 static const char __db_lock_invalid[] = "%s: Lock is no longer valid";
 static const char __db_locker_invalid[] = "Locker is not valid";
+
+int __lock_to_dbt_pp(DB_ENV *, DB_LOCK *, DBT *);
 
 #ifdef DEBUG_LOCKS
 extern void bdb_describe_lock_dbt(DB_ENV *dbenv, DBT *dbt, char *out,
@@ -2033,6 +2035,47 @@ rep_return_deadlock(DB_ENV *dbenv, u_int32_t sz)
 	}
 }
 
+struct {
+	DBT obj;
+	char mem[33];
+} gbl_rep_lockobj;
+
+void berk_init_rep_lockobj() {
+	gbl_rep_lockobj.obj.data = gbl_rep_lockobj.mem;
+	gbl_rep_lockobj.obj.ulen = sizeof(gbl_rep_lockobj.mem);
+	gbl_rep_lockobj.obj.flags = DB_DBT_USERMEM;
+}
+
+void comdb2_dump_blockers(DB_ENV *dbenv)
+{
+	struct __db_lock *hlp, *lp;
+	DB_LOCKTAB *lt;
+	DB_LOCKREGION *region;
+	DB_LOCKOBJ *obj;
+	u_int32_t ndx;
+	u_int32_t partition;
+	int ret;
+
+	lt = dbenv->lk_handle;
+	region = lt->reginfo.primary;
+
+	OBJECT_INDX(lt, region, &gbl_rep_lockobj.obj, ndx, partition);
+
+	lock_obj_partition(region, partition);
+	ret = __lock_getobj(lt, &gbl_rep_lockobj.obj, ndx, partition, 0, &obj);
+	unlock_obj_partition(region, partition);
+
+	if (ret != 0 || !obj)
+		return;
+
+	for (hlp = SH_TAILQ_FIRST(&obj->holders, __db_lock);
+		hlp != NULL; hlp = SH_TAILQ_NEXT(hlp, links, __db_lock))
+	{
+		comdb2_dump_blocker(hlp->holderp->id);
+	}
+}
+
+
 #define ADD_TO_HOLDARR(x)                                                      \
 	do {                                                                   \
 		if (holdix + 1 >= holdsz) {                                    \
@@ -2609,10 +2652,13 @@ upgrade:
 		}
 
 		extern u_int32_t gbl_rep_lockid;
-		extern struct __db_lock *gbl_rep_last_waiting_lock;
-
 		if (locker == gbl_rep_lockid) {
-			gbl_rep_last_waiting_lock = newl;
+			DB_LOCK lk = {
+				.off = R_OFFSET(&lt->reginfo, newl),
+				.gen = newl->gen,
+				.mode = newl->mode
+			};
+			__lock_to_dbt_pp(dbenv, &lk, &gbl_rep_lockobj.obj);
 		}
 
 		switch (action) {
@@ -2922,26 +2968,6 @@ err:
 		__os_free(dbenv, holdarr);
 
 	return (ret);
-}
-
-void dump_rep_blockers(void)
-{
-	extern struct __db_lock *gbl_rep_last_waiting_lock;
-	struct __db_lock *hlp, *lp;
-	DB_LOCKOBJ *obj;
-
-	if (!gbl_rep_last_waiting_lock)
-		return;
-
-	obj = gbl_rep_last_waiting_lock->lockobj;
-	if (!obj)
-		return;
-
-	for (hlp = SH_TAILQ_FIRST(&obj->holders, __db_lock);
-		hlp != NULL; hlp = SH_TAILQ_NEXT(hlp, links, __db_lock))
-	{
-		comdb2_dump_rep_blocker(hlp->holderp->id);
-	}
 }
 
 static inline int

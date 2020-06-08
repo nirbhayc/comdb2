@@ -3827,7 +3827,6 @@ size_t __dbenv_get_log_header_size(DB_ENV* dbenv)
 
 // TODO(NC): rename it to lockerid
 u_int32_t gbl_rep_lockid;
-struct __db_lock *gbl_rep_last_waiting_lock;
 
 static void
 worker_thd(struct thdpool *pool, void *work, void *thddata, int op)

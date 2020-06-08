@@ -781,8 +781,6 @@ int bdb_lock_row_write_getlock_fromlid(bdb_state_type *bdb_state, int lid,
     return rc;
 }
 
-extern int __lock_to_dbt(DB_ENV *dbenv, DB_LOCK *lock, void **ptr, int *sz);
-
 int bdb_release_lock(bdb_state_type *bdb_state, DB_LOCK *lk)
 {
     int rc;

@@ -149,7 +149,7 @@ int bdb_dump_logical_tranlist(void *state, FILE *f);
 void replay_stat(void);
 void bdb_dump_freelist(FILE *out, int datafile, int stripe, int ixnum,
                        bdb_state_type *bdb_state);
-void dump_rep_blockers();
+void comdb2_dump_blockers(DB_ENV *);
 void delete_log_files(bdb_state_type *bdb_state);
 void malloc_stats();
 int get_blkmax(void);
@@ -2920,7 +2920,7 @@ clipper_usage:
             if (ltok == 0) {
                 sql_dump_running_statements();
             } else if (tokcmp(tok, ltok, "repblockers") == 0) {
-                dump_rep_blockers();
+                comdb2_dump_blockers(thedb->bdb_env->dbenv);
             }
         } else if (tokcmp(tok, ltok, "keep") == 0) {
             int n;
