@@ -104,6 +104,8 @@ struct sqlthdstate {
     LISTC_T(stmt_hash_entry_type) param_stmt_list;   // list of cached stmts
     LISTC_T(stmt_hash_entry_type) noparam_stmt_list; // list of cached stmts
 
+    auth_cache_t *auth_cache;
+
     int dbopen_gen;
     int analyze_gen;
     int views_gen;

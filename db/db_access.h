@@ -22,6 +22,34 @@
 int gbl_enable_auth_cache;
 uint64_t gbl_auth_gen;
 
+enum PRIVILEGE_TYPE {
+    PRIV_INVALID,
+    PRIV_READ = 1 << 0,
+    PRIV_WRITE = 1 << 1,
+    PRIV_DDL = 1 << 2,
+};
+
+typedef struct table_permission {
+    char table_name[MAXTABLELEN];
+    uint8_t privileges;
+} table_permissions_t;
+
+typedef struct auth_cache_entry {
+    char user_name[MAX_USERNAME_LEN];
+    bool is_anonymous;
+    bool is_op;
+    bool is_authenticated;
+    hash_t *table_priv_hash; /* Hash of per-user table privileges */
+} auth_cache_entry_t;
+
+typedef struct auth_cache {
+    uint64_t auth_gen;
+    hash_t *auth_hash;
+} auth_cache_t;
+
+auth_cache_t *auth_cache_new(auth_cache_t *);
+int auth_cache_reset(auth_cache_t *);
+
 void check_access_controls(struct dbenv *);
 int check_sql_access(struct sqlthdstate *, struct sqlclntstate *);
 /* Validate write access to database pointed by cursor pCur */
