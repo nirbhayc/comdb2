@@ -70,6 +70,7 @@ static int scriptmode = 0;
 static int error = 0;
 static cdb2_hndl_tp *cdb2h = NULL;
 static int time_mode = 0;
+static int benchmark = 1;
 static int rowsleep = 0;
 static int string_blobs = 0;
 static int show_effects = 0;
@@ -158,6 +159,7 @@ static const char *usage_text =
     "     cdb2sql mydb @node1:port=19007,node2:port=19000 'select 1'\n"
     "\n"
     "Interactive session commands:\n"
+    "@benchmark number    Repeat a query this many times\n"
     "@cdb2_close          Close connection (calls cdb2_close())\n"
     "@desc      tblname   Describe a table\n"
     "@hexblobs            Display blobs in hexadecimal format\n"
@@ -184,9 +186,9 @@ const char *level_one_words[] = {
 };
 
 const char *char_atglyph_words[] = {
-    "bind", "cdb2_close", "desc", "hexblobs", "ls",   "redirect",
-    "row_sleep",  "send", "strblobs", "time",
-    NULL,  // must be terminated by NULL
+    "benchmark", "bind",      "cdb2_close", "desc",     "hexblobs", "ls",
+    "redirect",  "row_sleep", "send",       "strblobs", "time",
+    NULL, // must be terminated by NULL
 };
 
 static char *char_atglyph_generator(const char *text, const int state)
@@ -919,6 +921,14 @@ static int process_escape(const char *cmdstr)
                 return rc;
             }
         }
+    } else if (strcasecmp(tok, "benchmark") == 0) {
+        tok = strtok_r(NULL, delims, &lasts);
+        if (!tok) {
+            fprintf(stderr, "expected number of times to repeat the query\n");
+            return -1;
+        }
+        benchmark = atoi(tok);
+        printf("Repeating every query %d times\n", benchmark);
     } else {
         fprintf(stderr, "unknown command %s\n", tok);
         return -1;
@@ -1508,7 +1518,8 @@ static int run_statement(const char *sql, int ntypes, int *types,
     return 0;
 }
 
-static void process_line(char *sql, int ntypes, int *types)
+static void process_line(char *sql, int ntypes, int *types,
+                         int *start_time, int *run_time)
 {
     char *sqlstr = sql;
     int rc;
@@ -1550,6 +1561,13 @@ static void process_line(char *sql, int ntypes, int *types)
         }
     }
 
+    if (start_time) {
+      *start_time = start_time_ms;
+    }
+    if (run_time) {
+      *run_time = run_time_ms;
+    }
+
     if (docost && !rc && report_costs == NULL) {
         int saved_printmode = printmode;
         printmode = DISP_TABS | DISP_STDERR;
@@ -1557,6 +1575,38 @@ static void process_line(char *sql, int ntypes, int *types)
         run_statement(costSql, ntypes, types, &start_time_ms, &run_time_ms);
         printmode = saved_printmode;
     }
+}
+
+static int do_benchmark(char *sql)
+{
+    long long start_time_ms_tot = 0, run_time_ms_tot = 0;
+    int start_time_ms, run_time_ms;
+
+    /* Trim whitespace and then ignore comments and empty lines. */
+    while (isspace(*sql))
+        sql++;
+
+    if (sql[0] == '#' || sql[0] == '\0' || (sql[0] == '-' && sql[1] == '-'))
+        return 0;
+
+    if (sql[0] == '@') {
+        return process_bind(sql);
+    }
+
+    /* Execute the query specified number of times */
+    for (int i = 0; i < benchmark; i++) {
+        start_time_ms = 0;
+        run_time_ms = 0;
+        process_line(sql, 0, NULL, &start_time_ms, &run_time_ms);
+        start_time_ms_tot += start_time_ms;
+        run_time_ms_tot += run_time_ms;
+    }
+
+    /* Print the summary */
+    printf("  total prep time  %d ms\n", start_time_ms_tot);
+    printf("  total run time   %d ms\n", run_time_ms_tot);
+
+    return 0;
 }
 
 void load_readline_history()
@@ -1894,7 +1944,7 @@ int main(int argc, char *argv[])
         types = process_typed_statement_args(ntypes, &argv[optind]);
     if (sql && *sql != '-') {
         scriptmode = 1;
-        process_line(sql, ntypes, types);
+        process_line(sql, ntypes, types, 0, 0);
         if (cdb2h) {
             cdb2_close(cdb2h);
         }
@@ -1935,7 +1985,11 @@ int main(int argc, char *argv[])
             break;
         if ((multi = is_multi_line(line)) != 0)
             line = get_multi_line_statement(line);
-        process_line(line, 0, NULL);
+        if (benchmark > 1) {
+            do_benchmark(line);
+        } else {
+            process_line(line, 0, NULL, 0, 0);
+        }
         if (multi)
             free(line);
     }
