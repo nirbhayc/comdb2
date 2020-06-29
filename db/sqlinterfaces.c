@@ -2926,37 +2926,6 @@ int release_locks_on_emit_row(struct sqlthdstate *thd,
     return 0;
 }
 
-/* If user password does not match this function
- * will write error response and return a non 0 rc
- */
-static inline int check_user_password(struct sqlclntstate *clnt)
-{
-    int password_rc = 0;
-    int valid_user;
-
-    if (!gbl_uses_password)
-        return 0;
-
-    if (!clnt->current_user.have_name) {
-        clnt->current_user.have_name = 1;
-        strcpy(clnt->current_user.name, DEFAULT_USER);
-    }
-
-    if (!clnt->current_user.have_password) {
-        clnt->current_user.have_password = 1;
-        strcpy(clnt->current_user.password, DEFAULT_PASSWORD);
-    }
-
-    password_rc = bdb_user_password_check(
-        clnt->current_user.name, clnt->current_user.password, &valid_user);
-
-    if (password_rc != 0) {
-        write_response(clnt, RESPONSE_ERROR_ACCESS, "access denied", 0);
-        return 1;
-    }
-    return 0;
-}
-
 /* Return current authenticated user for the session */
 char *get_current_user(struct sqlclntstate *clnt)
 {
@@ -4344,41 +4313,6 @@ int handle_sqlite_requests(struct sqlthdstate *thd, struct sqlclntstate *clnt)
 
     if (allocd_str)
         free(allocd_str);
-    return rc;
-}
-
-static int check_sql_access(struct sqlthdstate *thd, struct sqlclntstate *clnt)
-{
-    int rc, bpfunc_auth_gen = gbl_bpfunc_auth_gen;
-
-    if (gbl_check_access_controls) {
-        check_access_controls(thedb);
-        gbl_check_access_controls = 0;
-    }
-
-    /* Free pass if our authentication gen is up-to-date. */
-    if (clnt->authgen == bpfunc_auth_gen)
-        return 0;
-
-#   if WITH_SSL
-    /* If 1) this is an SSL connection, 2) and client sends a certificate,
-       3) and client does not override the user, let it through. */
-    if (sslio_has_x509(clnt->sb) && clnt->current_user.is_x509_user)
-        rc = 0;
-    else
-#   endif
-        rc = check_user_password(clnt);
-
-    if (rc == 0) {
-        if (thd->lastuser[0] != '\0' &&
-            strcmp(thd->lastuser, clnt->current_user.name) != 0)
-            delete_prepared_stmts(thd);
-        strcpy(thd->lastuser, clnt->current_user.name);
-        clnt->authgen = bpfunc_auth_gen;
-    } else {
-        clnt->authgen = 0;
-    }
-
     return rc;
 }
 

@@ -2427,6 +2427,7 @@ clipper_usage:
         debug_trap(line + st, lline - st);
     }
 
+    // TODO(NC): deprecate?
     /*
        access set password <user>  <password>
        access set read     <table> <user>

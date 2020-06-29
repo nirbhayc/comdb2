@@ -31,7 +31,7 @@
 #include "fwd_types.h"
 #include "priority_queue.h"
 #include "comdb2_ruleset.h"
-
+#include "db_access.h"
 #include "fdb_fend.h"
 #include <sp.h>
 
