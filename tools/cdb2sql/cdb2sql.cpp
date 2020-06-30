@@ -27,17 +27,19 @@
 #include <bb_getopt_long.h>
 #include <readline/readline.h>
 #include <readline/history.h>
-#include "cdb2api.h"
 #include <pthread.h>
 #include <assert.h>
+#include <sys/ioctl.h>
 #include <sys/time.h>
-#include "cdb2_constants.h"
 #include <inttypes.h>
 
 #include <iostream>
 #include <list>
 #include <string>
 #include <vector>
+
+#include "cdb2api.h"
+#include "cdb2_constants.h"
 
 static char *dbname = NULL;
 static char *dbtype = NULL;
@@ -59,6 +61,7 @@ enum {
     DISP_GENSQL  = 1 << 3, /* generate insert statements */
     DISP_TABULAR = 1 << 4, /* display result in tabular format */
     DISP_STDERR  = 1 << 5, /* print to stderr */
+    DISP_NONE    = 1 << 6, /* display nothing */
 };
 
 static int show_ports = 0;
@@ -1429,6 +1432,10 @@ static int run_statement(const char *sql, int ntypes, int *types,
 
     /* Print rows */
     while ((rc = cdb2_next_record(cdb2h)) == CDB2_OK) {
+        if (printmode & DISP_NONE) {
+          continue;
+        }
+
         if (printmode & DISP_CLASSIC) {
             fprintf(out, "(");
         } else if (printmode & DISP_GENSQL) {
@@ -1553,7 +1560,7 @@ static void process_line(char *sql, int ntypes, int *types,
 
     if (rc != 0) {
         error++;
-    } else if (!scriptmode) {
+    } else if ((!scriptmode) && !(printmode & DISP_NONE)) {
         printf("[%s] rc %d\n", sqlstr, rc);
         if (time_mode) {
             printf("  prep time  %d ms\n", start_time_ms);
@@ -1577,6 +1584,8 @@ static void process_line(char *sql, int ntypes, int *types,
     }
 }
 
+struct winsize win_size;
+
 static int do_benchmark(char *sql)
 {
     long long start_time_ms_tot = 0, run_time_ms_tot = 0;
@@ -1593,16 +1602,39 @@ static int do_benchmark(char *sql)
         return process_bind(sql);
     }
 
+    printmode |= DISP_NONE;
+
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &win_size);
+    int progress_bar_width = win_size.ws_col - 20;
+    int spaces = 0;
+    int stars = 0;
+    float progress_pct = 0;
+    int last_progress_pct = 0;
+
     /* Execute the query specified number of times */
-    for (int i = 0; i < benchmark; i++) {
+    for (int i = 1; i <= benchmark; i++) {
         start_time_ms = 0;
         run_time_ms = 0;
         process_line(sql, 0, NULL, &start_time_ms, &run_time_ms);
         start_time_ms_tot += start_time_ms;
         run_time_ms_tot += run_time_ms;
+
+        progress_pct = ((float)i / benchmark) * 100;
+        if ((int)progress_pct > last_progress_pct) {
+            last_progress_pct = (int)progress_pct;
+            stars = (progress_pct * progress_bar_width) / 100;
+            spaces = progress_bar_width - stars;
+            printf("executing: [%s%s] %.d%%\r", std::string(stars, '*').c_str(),
+                   std::string(spaces, ' ').c_str(), (int)progress_pct);
+            fflush(stdout);
+        }
     }
 
+    printmode &= (~DISP_NONE);
+
     /* Print the summary */
+    printf("\n");
+    printf("summary:\n");
     printf("  total prep time  %d ms\n", start_time_ms_tot);
     printf("  total run time   %d ms\n", run_time_ms_tot);
 
