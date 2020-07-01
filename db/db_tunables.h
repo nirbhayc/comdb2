@@ -1983,4 +1983,13 @@ REGISTER_TUNABLE("test_log_file",
                  "(Default: off)", TUNABLE_STRING, &gbl_test_log_file,
                  EXPERIMENTAL | INTERNAL | READEARLY, NULL, NULL,
                  test_log_file_update, NULL);
+
+REGISTER_TUNABLE("max_password_cache_size",
+                 "Password cache size, set to <=0 to turn off caching "
+                 "(Default: 100)",
+                 TUNABLE_INTEGER, &gbl_max_password_cache_size,
+                 EXPERIMENTAL | INTERNAL, NULL, NULL,
+                 max_password_cache_size_update, NULL);
+
+extern int gbl_max_password_cache_size;
 #endif /* _DB_TUNABLES_H */

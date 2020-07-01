@@ -3573,4 +3573,8 @@ void dump_client_sql_data(struct reqlogger *logger, int do_snapshot);
 
 int backout_schema_changes(struct ireq *iq, tran_type *tran);
 int bplog_schemachange(struct ireq *iq, blocksql_tran_t *tran, void *err);
+
+void init_password_cache();
+void destroy_password_cache();
+
 #endif /* !INCLUDED_COMDB2_H */

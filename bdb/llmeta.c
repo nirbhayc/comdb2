@@ -30,9 +30,9 @@
 #include <openssl/rand.h>
 #include "logmsg.h"
 #include "str0.h"
+#include "lrucache.h"
 
 #include <sys/time.h>
-#include <str0.h>
 
 extern int gbl_maxretries;
 extern int gbl_disable_access_controls;
@@ -9802,6 +9802,58 @@ int set_pbkdf2_iterations(int val)
     return 0;
 }
 
+int gbl_max_password_cache_size = 100;
+lrucache *password_cache; // saved password hashes
+
+typedef struct {
+    char *password;
+    int iterations;
+    uint8_t hash[32];
+    lrucache_link lnk;
+} password_cache_entry_t;
+
+static unsigned int password_hash(const void *p, int len)
+{
+    unsigned char *s;
+    unsigned h = 0;
+
+    memcpy(&s, p, sizeof(char *));
+
+    while (*s) {
+        h = ((h % 8388013) << 8) + (*s);
+        s++;
+    }
+    return h;
+}
+
+static int password_cmp(const void *key1, const void *key2, int len)
+{
+    char *p1, *p2;
+    memcpy(&p1, key1, sizeof(char *));
+    memcpy(&p2, key2, sizeof(char *));
+    return strcmp(p1, p2);
+}
+
+void init_password_cache()
+{
+    if (gbl_max_password_cache_size <= 0) {
+        return;
+    }
+    password_cache = lrucache_init(password_hash, password_cmp, free,
+                                   offsetof(password_cache_entry_t, lnk),
+                                   offsetof(password_cache_entry_t, password),
+                                   sizeof(char *), gbl_max_password_cache_size);
+}
+
+void destroy_password_cache()
+{
+    if (!password_cache)
+      return;
+
+    lrucache_destroy(password_cache);
+    password_cache = 0;
+}
+
 int bdb_user_password_check(char *user, char *passwd, int *valid_user)
 {
     int passwd_rc = 1;
@@ -9820,10 +9872,12 @@ int bdb_user_password_check(char *user, char *passwd, int *valid_user)
             *valid_user = 1;
         goto out;
     }
+
     // check password hash
     if (llmeta_get_user_passwd(user, LLMETA_USER_PASSWORD_HASH, &data) != 0) {
         goto out;
     }
+
     unsigned iterations;
     passwd_hash computed, *stored = data[0];
     switch (stored->ver) {
@@ -9838,9 +9892,35 @@ int bdb_user_password_check(char *user, char *passwd, int *valid_user)
     if (valid_user) {
         *valid_user = 1;
     }
-    PKCS5_PBKDF2_HMAC_SHA1(passwd, strlen(passwd), stored->u.p0.salt,
-                           sizeof(stored->u.p0.salt), iterations,
-                           sizeof(computed.u.p0.hash), computed.u.p0.hash);
+
+    // check if we have the password hash in the password cache
+    password_cache_entry_t *password_entry =
+        (gbl_max_password_cache_size > 0)
+            ? lrucache_find(password_cache, &passwd)
+            : 0;
+
+    if ((password_entry) && (password_entry->iterations == iterations)) {
+        memcpy(computed.u.p0.hash, password_entry->hash,
+               sizeof(stored->u.p0.hash));
+    } else {
+        PKCS5_PBKDF2_HMAC_SHA1(passwd, strlen(passwd), stored->u.p0.salt,
+                               sizeof(stored->u.p0.salt), iterations,
+                               sizeof(computed.u.p0.hash), computed.u.p0.hash);
+    }
+    if ((gbl_max_password_cache_size > 0) && !password_entry) {
+        password_cache_entry_t *entry;
+        entry = malloc(sizeof(password_cache_entry_t));
+
+        if (entry) {
+            entry->iterations = iterations;
+            memcpy(entry->hash, computed.u.p0.hash, sizeof(stored->u.p0.hash));
+            entry->password = strdup(passwd);
+            if (entry->password) {
+                lrucache_add(password_cache, entry);
+            }
+        }
+    }
+
     passwd_rc = CRYPTO_memcmp(computed.u.p0.hash, stored->u.p0.hash,
                               sizeof(stored->u.p0.hash));
 out:
