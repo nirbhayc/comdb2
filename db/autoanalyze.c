@@ -1,5 +1,5 @@
 /*
-   Copyright 2015 Bloomberg Finance L.P.
+   Copyright 2015, 2020 Bloomberg Finance L.P.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -34,10 +34,17 @@
 #include "sc_util.h"
 #include "comdb2_atomic.h"
 
+extern int gbl_autoexpert;
+extern pthread_mutex_t gbl_fingerprint_hash_mu;
+extern hash_t *gbl_fingerprint_hash;
+
 const char *aa_counter_str = "autoanalyze_counter";
 const char *aa_lastepoch_str = "autoanalyze_lastepoch";
 static volatile bool auto_analyze_running = false;
 int gbl_debug_aa;
+
+void execute_expert_query(struct sqlthdstate *thd, struct sqlclntstate *clnt,
+                          const char **outbuf, char **outerr, int *outrc);
 
 /* reset autoanalyze counters to zero
  */
@@ -312,13 +319,192 @@ void stat_auto_analyze(void)
     }
 }
 
+typedef struct query_sorter {
+    const char *query;
+    int count;
+} query_sorter;
+
+static int query_count_cmp_desc(const void *q1, const void *q2)
+{
+    return (((query_sorter *)q1)->count < ((query_sorter *)q2)->count);
+}
+
+static int get_top_N_queries(int n, char ***queries, int *num_queries)
+{
+    int fp_hash_size;
+    int count;
+    query_sorter *sorted_queries;
+    char **top_queries;
+
+    *num_queries = fp_hash_size = count = 0;
+
+    logmsg(LOGMSG_USER, "autoexpert: retrieving top %d queries\n", n);
+
+    Pthread_mutex_lock(&gbl_fingerprint_hash_mu);
+
+    if (gbl_fingerprint_hash) {
+        hash_info(gbl_fingerprint_hash, NULL, NULL, NULL, NULL, &fp_hash_size,
+                  NULL, NULL);
+        sorted_queries = calloc(fp_hash_size, sizeof(query_sorter));
+        if (fp_hash_size > 0) {
+            struct fingerprint_track *pEntry;
+            void *cur;
+            unsigned int bkt;
+            pEntry = hash_first(gbl_fingerprint_hash, &cur, &bkt);
+            for (int i = 0; pEntry; ++i) {
+                if (pEntry->readOnly == 1) {
+                    sorted_queries[i].query = strdup(pEntry->origSql);
+                    sorted_queries[i].count = pEntry->count;
+                    ++count;
+                } else {
+                    sorted_queries[i].query = strdup("");
+                    sorted_queries[i].count = 0;
+                }
+                pEntry = hash_next(gbl_fingerprint_hash, &cur, &bkt);
+            }
+        }
+    }
+    Pthread_mutex_unlock(&gbl_fingerprint_hash_mu);
+
+    if (count == 0) {
+        return 0;
+    }
+
+    /* Sort all the queries based on their count */
+    qsort(sorted_queries, fp_hash_size, sizeof(query_sorter),
+          query_count_cmp_desc);
+
+    /* Copy top-N queries */
+    *num_queries = (n < count) ? n : count;
+    top_queries = calloc(*num_queries, sizeof(char *));
+
+    logmsg(LOGMSG_USER, "autoexpert: top %d queries are:\n", *num_queries);
+
+    for (int i = 0; i < *num_queries; i++) {
+        top_queries[i] = strdup(sorted_queries[i].query);
+        logmsg(LOGMSG_USER, "%s\n", top_queries[i]);
+    }
+
+    *queries = top_queries;
+
+    for (int i = 0; i < count; ++i) {
+        free((char *)sorted_queries[i].query);
+    }
+    free(sorted_queries);
+
+    return 0;
+}
+
+static int get_recommendations(struct sqlclntstate *clnt,
+                               struct sqlthdstate *thd, char *query,
+                               const char **outbuf)
+{
+    char *errmsg;
+    int rc;
+
+    clnt->sql = query;
+
+    get_curtran(thedb->bdb_env, clnt);
+    execute_expert_query(thd, clnt, outbuf, &errmsg, &rc);
+    put_curtran(thedb->bdb_env, clnt);
+
+    if (rc) {
+        logmsg(LOGMSG_ERROR,
+               "autoexpert: failed to execute query in expert mode (rc:%d, error: "
+               "%s)\n",
+               rc, errmsg);
+    }
+
+    return rc;
+}
+
 /* Update counters for every table
- * if a db surpases the limit then create a new thread to run analyze
+ * if a db surpasses the limit then create a new thread to run analyze
  * Counters for other tables will still be updated,
  * but there can only be one analyze going on at any given time
  */
 void *auto_analyze_main(void *unused)
 {
+    if (gbl_autoexpert) {
+        struct sqlthdstate thd;
+        struct sqlclntstate clnt;
+        char **top_queries = NULL;
+        const char *recommendations = NULL;
+        int num_queries = 0;
+        int rc;
+
+        logmsg(LOGMSG_USER, "autoexpert-mode enabled!\n");
+
+        start_internal_sql_clnt(&clnt);
+        clnt.dbtran.mode = TRANLEVEL_SOSQL;
+        clnt.thd = &thd;
+
+        /* TODO (NC): introduce THRTYPE_autoexpert */
+        sqlengine_thd_start(NULL, &thd, THRTYPE_ANALYZE);
+        thd.sqlthd->clnt = &clnt;
+
+        /* TODO (NC): make it a tunable */
+        rc = get_top_N_queries(5, &top_queries, &num_queries);
+        if (rc) {
+            logmsg(LOGMSG_ERROR, "%s:%d failed to get top-n queries\n",
+                   __func__, __LINE__);
+        }
+
+        for (int i = 0; i < num_queries; ++i) {
+            logmsg(LOGMSG_USER,
+                   "autoexpert: recommended indices for query '%s' are:\n",
+                   top_queries[i]);
+            get_recommendations(&clnt, &thd, top_queries[i], &recommendations);
+            logmsg(LOGMSG_USER, "%s\n",
+                   (recommendations) ? recommendations : "no recommendations");
+
+            if (recommendations) {
+                char *cur = (char *)recommendations;
+                char *end = cur + strlen(recommendations);
+                char *q;
+
+                while (cur && (cur <= end)) {
+                    char *next = strstr(cur, "\n");
+                    if (next) {
+                        ++ next;
+                        q = strndup(cur, next - cur - 1);
+                    } else {
+                        q = strdup(cur);
+                    }
+
+                    /* Be sure it's a CREATE INDEX command */
+                    if ((memcmp(q, "CREATE INDEX", sizeof("CREATE INDEX") - 1)))
+                        break;
+
+                    logmsg(LOGMSG_USER, "autoexpert: executing %s\n", q);
+
+                    int err;
+                    bdb_state_type *bdb_state = thedb->bdb_env;
+                    uint64_t seed = bdb_get_a_genid(bdb_state);
+                    rc = bdb_llmeta_put_sc_queue(NULL, seed, q, &err);
+
+                    rc = run_internal_sql_clnt(&clnt, q);
+                    if (rc) {
+                        logmsg(LOGMSG_ERROR,
+                               "autoexpert: index creation failed (rc:%d)\n", rc);
+                    }
+                    free(q);
+                    cur = next;
+                }
+            }
+            /* TODO (NC): freeme */
+            // free(top_queries[i]);
+        }
+
+        end_internal_sql_clnt(&clnt);
+        thd.sqlthd->clnt = NULL;
+        sqlengine_thd_end(NULL, &thd);
+
+        free(top_queries);
+    } else {
+        thrman_register(THRTYPE_ANALYZE);
+    }
+
     if (NULL == get_dbtable_by_name("sqlite_stat1")) {
         logmsg(LOGMSG_DEBUG,
                "ANALYZE REQUIRES sqlite_stat1 to run but table is MISSING\n");
@@ -332,7 +518,6 @@ void *auto_analyze_main(void *unused)
 
     bdb_state_type *bdb_state = thedb->bdb_env;
 
-    thrman_register(THRTYPE_ANALYZE);
     backend_thread_event(thedb, COMDB2_THR_EVENT_START_RDONLY);
 
     int save_freq = bdb_attr_get(thedb->bdb_attr, BDB_ATTR_AA_LLMETA_SAVE_FREQ);

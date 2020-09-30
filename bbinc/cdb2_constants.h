@@ -63,6 +63,7 @@
 #define MAX_PASSWORD_LEN 19
 #define MAX_NUM_TABLES 1024
 #define MAX_NUM_QUEUES 1024
+#define MAX_CMD_LEN 1024
 
 /*
   Print at the given offset, detect overflow and update offset

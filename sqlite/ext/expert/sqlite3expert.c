@@ -1579,9 +1579,9 @@ static int idxPopulateOneStat1(
   while( SQLITE_OK==rc && SQLITE_ROW==sqlite3_step(pIndexXInfo) ){
     const char *zComma = zCols==0 ? "" : ", ";
     const char *zName = (const char*)sqlite3_column_text(pIndexXInfo, 0);
-    const char *zColl = (const char*)sqlite3_column_text(pIndexXInfo, 1);
+    //const char *zColl = (const char*)sqlite3_column_text(pIndexXInfo, 1);
     zCols = idxAppendText(&rc, zCols, 
-        "%sx.%Q IS rem(%d, x.%Q) COLLATE %s", zComma, zName, nCol, zName, zColl
+        "%sx.%Q IS rem(%d, x.%Q)", zComma, zName, nCol, zName
     );
     zOrder = idxAppendText(&rc, zOrder, "%s%d", zComma, ++nCol);
   }

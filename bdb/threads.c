@@ -41,7 +41,7 @@ void udp_backup(int dummyfd, short what, void *arg)
     send_myseqnum_to_master(bdb_state, 1);
 }
 
-void auto_analyze(int dummyfd, short what, void *arg)
+static void auto_analyze(int dummyfd, short what, void *arg)
 {
     bdb_state_type *bdb_state = arg;
     repinfo_type *repinfo = bdb_state->repinfo;

@@ -296,6 +296,8 @@ int comdb2SystblInit(
   if (rc == SQLITE_OK)
     rc = systblScHistoryInit(db);
   if (rc == SQLITE_OK)
+    rc = systblScQueueInit(db);
+  if (rc == SQLITE_OK)
     rc = systblConnectionsInit(db);
   if (rc == SQLITE_OK)
     rc = systblViewsInit(db);

@@ -123,8 +123,10 @@ void add_fingerprint(struct sqlclntstate *clnt, sqlite3_stmt *stmt,
         t->time = time;
         t->prepTime = prepTime;
         t->rows = nrows;
+        t->origSql = strdup(zSql);
         t->zNormSql = strdup(zNormSql);
         t->nNormSql = nNormSql;
+        t->readOnly = ((sqlite3_stmt_readonly(stmt))) ? 1 : 0;
         hash_add(gbl_fingerprint_hash, t);
 
         char fp[FINGERPRINTSZ*2+1]; /* 16 ==> 33 */

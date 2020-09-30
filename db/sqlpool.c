@@ -88,6 +88,7 @@ void sqlengine_thd_end(struct thdpool *pool, struct sqlthdstate *thd)
     sql_mem_shutdown(NULL);
 
     backend_thread_event(thedb, COMDB2_THR_EVENT_DONE_RDWR);
+    thrman_unregister();
 }
 
 static void thdpool_sqlengine_start(struct thdpool *pool, void *thd)
