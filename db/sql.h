@@ -70,10 +70,12 @@ struct fingerprint_track {
     int64_t time;     /* Cumulative preparation and execution time */
     int64_t prepTime; /* Cumulative preparation time only */
     int64_t rows;     /* Cumulative number of rows selected */
+    char *origSql;    /* An instance of the original query */
     char *zNormSql;   /* The normalized SQL query */
     size_t nNormSql;  /* Length of normalized SQL query */
     char ** cachedColNames; /* Cached column names from sqlitex */
     int cachedColCount;     /* Cached column count from sqlitex */
+    int readOnly;     /* Is it a Read Only query? */
 };
 
 typedef int(plugin_query_data_func)(struct sqlclntstate *, void **, int *, int, int);
@@ -1439,4 +1441,6 @@ int disable_server_sql_timeouts(void);
 int osql_clean_sqlclntstate(struct sqlclntstate *);
 void handle_failed_dispatch(struct sqlclntstate *, char *err);
 
+void execute_expert_query(struct sqlthdstate *thd, struct sqlclntstate *clnt,
+                          const char **outbuf, char **outerr, int *outrc);
 #endif /* _SQL_H_ */

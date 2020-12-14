@@ -313,7 +313,7 @@ void stat_auto_analyze(void)
 }
 
 /* Update counters for every table
- * if a db surpases the limit then create a new thread to run analyze
+ * if a db surpasses the limit then create a new thread to run analyze
  * Counters for other tables will still be updated,
  * but there can only be one analyze going on at any given time
  */

@@ -479,6 +479,8 @@ REGISTER_TUNABLE("gbl_exit_on_pthread_create_fail",
                  "create threads. (Default: 1)",
                  TUNABLE_INTEGER, &gbl_exit_on_pthread_create_fail, READONLY,
                  NULL, NULL, NULL, NULL);
+REGISTER_TUNABLE("autoexpert", "Enable autoexpert (Default: On)", TUNABLE_BOOLEAN,
+                 &gbl_autoexpert, NOARG | EXPERIMENTAL, NULL, NULL, NULL, NULL);
 REGISTER_TUNABLE("goslow", NULL, TUNABLE_BOOLEAN, &gbl_goslow, NOARG, NULL,
                  NULL, NULL, NULL);
 REGISTER_TUNABLE("gofast", NULL, TUNABLE_BOOLEAN, &gbl_goslow,

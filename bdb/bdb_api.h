@@ -1601,6 +1601,17 @@ typedef struct {
     char errstr[LLMETA_SCERR_LEN];
 } sc_hist_row; // this is content of row in comdb2_sc_history
 
+typedef struct {
+    uint64_t seed;
+    char command[MAX_CMD_LEN];
+    uint64_t added;
+} sc_queue_row;
+
+int bdb_llmeta_get_sc_queue(tran_type *t, sc_queue_row **rows_out, int *num,
+                            int *bdberr);
+int bdb_llmeta_put_sc_queue(tran_type *t, uint64_t seed, char *command,
+                            int *bdberr);
+
 int bdb_llmeta_get_sc_history(tran_type *t, sc_hist_row **hist_out, int *num,
                               int *bdberr, const char *tablename);
 

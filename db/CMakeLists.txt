@@ -1,6 +1,7 @@
 set(src
   appsock_handler.c
   autoanalyze.c
+  autoexpert.c
   block_internal.c
   bpfunc.c
   comdb2.c

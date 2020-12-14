@@ -167,7 +167,8 @@ typedef enum {
     LLMETA_SCHEMACHANGE_STATUS = 50,
     LLMETA_VIEW = 51,                 /* User defined views */
     LLMETA_SCHEMACHANGE_HISTORY = 52, /* 52 + SEED[8] */
-    LLMETA_SEQUENCE_VALUE = 53
+    LLMETA_SEQUENCE_VALUE = 53,
+    LLMETA_SCHEMACHANGE_QUEUE = 54,
 } llmetakey_t;
 
 struct llmeta_file_type_key {
@@ -4118,6 +4119,161 @@ int bdb_llmeta_get_sc_history(tran_type *t, sc_hist_row **hist_out, int *num,
 
     *num = nkey;
     *hist_out = hist;
+    return 0;
+}
+
+struct llmeta_sc_queue_key {
+    int file_type;
+    uint64_t seed;
+};
+enum { LLMETA_SC_QUEUE_KEY_LEN = sizeof(int) + sizeof(uint64_t) };
+
+struct llmeta_sc_queue_data {
+    char command[MAX_CMD_LEN];
+    uint64_t added;
+};
+enum { LLMETA_SC_QUEUE_DATA_LEN = sizeof(int) + sizeof(uint64_t) };
+
+static const uint8_t *
+llmeta_sc_queue_key_put(const struct llmeta_sc_queue_key *p_sc_queue_k,
+                        uint8_t *p_buf, const uint8_t *p_buf_end)
+{
+    if (p_buf_end < p_buf ||
+        LLMETA_SC_QUEUE_KEY_LEN > (p_buf_end - p_buf))
+        return NULL;
+
+    p_buf = buf_put(&(p_sc_queue_k->file_type), sizeof(p_sc_queue_k->file_type),
+                    p_buf, p_buf_end);
+    p_buf = buf_put(&(p_sc_queue_k->seed), sizeof(p_sc_queue_k->seed),
+                    p_buf, p_buf_end);
+    return p_buf;
+}
+
+static const uint8_t *
+llmeta_sc_queue_key_get(struct llmeta_sc_queue_key *p_sc_queue_k,
+                        const uint8_t *p_buf, const uint8_t *p_buf_end)
+{
+    if (p_buf_end < p_buf ||
+        LLMETA_SC_QUEUE_KEY_LEN > (p_buf_end - p_buf))
+        return NULL;
+
+    p_buf = buf_get(&(p_sc_queue_k->file_type), sizeof(p_sc_queue_k->file_type),
+                    p_buf, p_buf_end);
+    p_buf = buf_get(&(p_sc_queue_k->seed), sizeof(p_sc_queue_k->seed),
+                    p_buf, p_buf_end);
+
+    return p_buf;
+}
+
+static uint8_t *llmeta_sc_queue_data_put(struct llmeta_sc_queue_data *p_sc_queue,
+                                         uint8_t *p_buf,
+                                         const uint8_t *p_buf_end)
+{
+    p_buf = buf_no_net_put(&(p_sc_queue->command), sizeof(p_sc_queue->command),
+                           p_buf, p_buf_end);
+    p_buf = buf_put(&(p_sc_queue->added), sizeof(p_sc_queue->added), p_buf,
+                    p_buf_end);
+    return p_buf;
+}
+
+static const uint8_t *llmeta_sc_queue_data_get(sc_queue_row *p_sc_queue,
+                                               const uint8_t *p_buf,
+                                               const uint8_t *p_buf_end)
+{
+    p_buf = buf_no_net_get(&(p_sc_queue->command), sizeof(p_sc_queue->command),
+                           p_buf, p_buf_end);
+    p_buf = buf_get(&(p_sc_queue->added), sizeof(p_sc_queue->added), p_buf,
+                    p_buf_end);
+    return p_buf;
+}
+
+int bdb_llmeta_put_sc_queue(tran_type *t, uint64_t seed, char *command,
+                            int *bdberr)
+{
+    union {
+        struct llmeta_sc_queue_key key;
+        uint8_t buf[LLMETA_IXLEN];
+    } u = {{0}};
+
+    u.key.file_type = htonl(LLMETA_SCHEMACHANGE_QUEUE);
+    u.key.seed = flibc_htonll(seed);
+
+    uint8_t *p_buf_start, *p_buf_end;
+    p_buf_start = alloca(sizeof(sc_queue_row));
+    p_buf_end = p_buf_start + sizeof(struct llmeta_sc_queue_data);
+
+    struct llmeta_sc_queue_data row = {.added = get_epochms()};
+    strncpy0(row.command, command, sizeof(row.command));
+
+    llmeta_sc_queue_data_put(&row, p_buf_start, p_buf_end);
+
+    int rc = kv_put(t, &u, p_buf_start, sizeof(sc_queue_row), bdberr);
+
+    *bdberr = BDBERR_NOERROR;
+    return rc;
+}
+
+int bdb_llmeta_get_sc_queue(tran_type *t, sc_queue_row **rows_out, int *num,
+                            int *bdberr)
+{
+    void **data = NULL;
+    void **keys = NULL;
+    int nkey = 0, rc = 1;
+    sc_queue_row *rows = NULL;
+    void **sc_data = NULL;
+
+    *num = 0;
+    *rows_out = NULL;
+    union {
+        struct llmeta_sc_queue_key key;
+        uint8_t buf[LLMETA_IXLEN];
+    } u = {{0}};
+
+    u.key.file_type = htonl(LLMETA_SCHEMACHANGE_QUEUE);
+    int sz = sizeof(int);
+
+    rc = kv_get_kv(t, &u, sz, &keys, &data, &nkey, bdberr);
+    if (rc) {
+        logmsg(LOGMSG_ERROR, "%s: failed kv_get rc %d\n", __func__, rc);
+        return -1;
+    }
+
+    if (nkey == 0)
+        return 0;
+
+    rows = calloc(nkey, sizeof(sc_queue_row) * nkey);
+    if (rows == NULL) {
+        logmsg(LOGMSG_ERROR, "%s: failed malloc\n", __func__);
+        *bdberr = BDBERR_MALLOC;
+        return -1;
+    }
+
+    sc_data = calloc(nkey, sizeof(void *));
+    if (sc_data == NULL) {
+        logmsg(LOGMSG_ERROR, "%s: failed malloc\n", __func__);
+        free(rows);
+        *bdberr = BDBERR_MALLOC;
+        return -1;
+    }
+
+    for (int i = 0; i < nkey; i++) {
+        struct llmeta_sc_queue_key k;
+        llmeta_sc_queue_key_get(
+            &k, keys[i], (uint8_t *)(keys[i]) + sizeof(struct llmeta_sc_queue_key));
+        rows[i].seed = k.seed;
+        llmeta_sc_queue_data_get(&rows[i], data[i],
+                                 (uint8_t *)(data[i]) + sizeof(sc_queue_row));
+    }
+
+    for (int i = 0; i < nkey; i++) {
+        free(keys[i]);
+        free(data[i]);
+    }
+    free(data);
+    free(keys);
+
+    *num = nkey;
+    *rows_out = rows;
     return 0;
 }
 

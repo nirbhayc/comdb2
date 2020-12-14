@@ -774,9 +774,11 @@ static int comdb2_authorizer_for_sqlite(
   switch (code) {
     case SQLITE_CREATE_INDEX:
     case SQLITE_CREATE_TABLE:
+    case SQLITE_CREATE_TEMP_TABLE:
     case SQLITE_CREATE_VIEW:
     case SQLITE_DROP_INDEX:
     case SQLITE_DROP_TABLE:
+    case SQLITE_DROP_TEMP_TABLE:
     case SQLITE_DROP_TRIGGER:
     case SQLITE_DROP_VIEW:
     case SQLITE_ALTER_TABLE:
@@ -824,11 +826,9 @@ static int comdb2_authorizer_for_sqlite(
         return SQLITE_OK;
       }
     case SQLITE_CREATE_TEMP_INDEX:
-    case SQLITE_CREATE_TEMP_TABLE:
     case SQLITE_CREATE_TEMP_TRIGGER:
     case SQLITE_CREATE_TEMP_VIEW:
     case SQLITE_DROP_TEMP_INDEX:
-    case SQLITE_DROP_TEMP_TABLE:
     case SQLITE_DROP_TEMP_TRIGGER:
     case SQLITE_DROP_TEMP_VIEW:
       pAuthState->numDdls++;
@@ -3920,13 +3920,15 @@ static int get_prepared_bound_stmt(struct sqlthdstate *thd,
 
 static void handle_stored_proc(struct sqlthdstate *, struct sqlclntstate *);
 
-static void handle_expert_query(struct sqlthdstate *thd,
-                                struct sqlclntstate *clnt, int *outrc)
+void execute_expert_query(struct sqlthdstate *thd, struct sqlclntstate *clnt,
+                          const char **outbuf, char **outerr, int *outrc)
 {
     int rc;
-    char *zErr = 0;
 
+    *outbuf = NULL;
+    *outerr = NULL;
     *outrc = 0;
+
     rdlock_schema_lk();
     rc = sqlengine_prepare_engine(thd, clnt, PREPARE_RECREATE);
     unlock_schema_lk();
@@ -3940,19 +3942,34 @@ static void handle_expert_query(struct sqlthdstate *thd,
 
     comdb2_set_authstate(thd, clnt, PREPARE_RECREATE);
     rc = -1;
-    sqlite3expert *p = sqlite3_expert_new(thd->sqldb, &zErr);
+    sqlite3expert *p = sqlite3_expert_new(thd->sqldb, outerr);
 
     if (p) {
-        rc = sqlite3_expert_sql(p, clnt->sql, &zErr);
+        rc = sqlite3_expert_sql(p, clnt->sql, outerr);
     }
 
     if (rc == SQLITE_OK) {
-        rc = sqlite3_expert_analyze(p, &zErr);
+        rc = sqlite3_expert_analyze(p, outerr);
     }
 
     if (rc == SQLITE_OK) {
-        const char *zCand =
-            sqlite3_expert_report(p, 0, EXPERT_REPORT_CANDIDATES);
+        *outbuf = sqlite3_expert_report(p, 0, EXPERT_REPORT_CANDIDATES);
+    }
+    sqlite3_expert_destroy(p);
+    clnt->no_transaction = 0;
+    return; /* Don't process anything else */
+}
+
+static void handle_expert_query(struct sqlthdstate *thd,
+                                struct sqlclntstate *clnt, int *outrc)
+{
+    const char *zCand;
+    char *zErr;
+    int rc;
+
+    execute_expert_query(thd, clnt, &zCand, &zErr, &rc);
+
+    if (rc == SQLITE_OK) {
         fprintf(stdout, "-- Candidates -------------------------------\n");
         fprintf(stdout, "%s\n", zCand);
         write_response(clnt, RESPONSE_TRACE, "---------- Recommended Indexes --------------\n", 0);
@@ -3964,9 +3981,7 @@ static void handle_expert_query(struct sqlthdstate *thd,
     }
     write_response(clnt, RESPONSE_ROW_LAST_DUMMY, NULL, 0);
     write_response(clnt, RESPONSE_FLUSH, NULL, 0);
-    sqlite3_expert_destroy(p);
     sqlite3_free(zErr);
-    clnt->no_transaction = 0;
     return; /* Don't process anything else */
 }
 
