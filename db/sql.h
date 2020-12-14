@@ -744,11 +744,6 @@ struct sqlclntstate {
     char *origin;
     uint8_t dirty[256]; /* We can track upto 2048 tables */
 
-    int had_errors; /* to remain compatible with blocksql: if a user starts a
-                       transaction, we
-                       need to pend the first error until a commit is issued.
-                       any statements
-                       past the first error are ignored. */
     int in_client_trans; /* clnt is in a client transaction (ie. client ran
                             "begin" but not yet commit or rollback */
     char *saved_errstr;  /* if had_errors, save the error string */
@@ -888,6 +883,7 @@ struct sqlclntstate {
     char* origin_host;
     int8_t sent_data_to_client;
     int8_t is_asof_snapshot;
+    LISTC_T(comdb2_error_st) error;
     LINKC_T(struct sqlclntstate) lnk;
     int last_sent_row_sec; /* used to delay releasing locks when bdb_lock is
                               desired */
