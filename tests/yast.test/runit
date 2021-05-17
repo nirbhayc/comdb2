@@ -52,7 +52,7 @@ fi
 FILE=$2
 if [ -z "$FILE" ];
 then
-    FILE="*.test"
+    FILE="window1.test"
 fi
 
 FILEPATH="$TMPDIR/files"
