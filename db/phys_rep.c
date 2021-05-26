@@ -31,6 +31,10 @@ typedef struct DB_Connection {
 } DB_Connection;
 
 int gbl_verbose_physrep = 0;
+int gbl_physrep_register_interval = 10;
+int gbl_physrep_reconnect_penalty = 5;
+int gbl_blocking_physrep = 0;
+
 static DB_Connection ***local_rep_dbs = NULL;
 static size_t tiers = 0;
 static size_t curr_tier = 0;
@@ -38,6 +42,7 @@ static size_t tier_len = 0;
 static size_t *cnct_len = NULL;
 static size_t *cnct_idx = NULL;
 static time_t retry_time = 3;
+static int last_register;
 
 /* forward declarations */
 static DB_Connection *get_connect(char *hostname);
@@ -112,14 +117,11 @@ void close_repl_connection(void)
     curr_cnct->is_up = 0;
     cdb2_close(repl_db);
     repl_db_connected = 0;
+    repl_db = NULL;
     if (gbl_verbose_physrep) {
         logmsg(LOGMSG_USER, "%s closed handle\n", __func__);
     }
 }
-
-int gbl_physrep_register_interval = 3600;
-static int last_register;
-int gbl_blocking_physrep = 0;
 
 static void *keep_in_sync(void *args)
 {
@@ -347,20 +349,17 @@ static int register_self()
 {
     int rc;
     DB_Connection *cnct;
-    size_t sql_len = 400;
-    char get_tier[sql_len];
+    char cmd[400];
     LOG_INFO info = get_last_lsn(thedb->bdb_env);
 
     /* do a cleanup to get new list of tiered replicants */
     cleanup_hosts();
 
-    /* TODO: Change this from local host to gbl_myhostname */
-    rc = snprintf(get_tier, sql_len,
-                  "exec procedure "
-                  "sys.cmd.register_replicant('%s', '%s', '%u', '%u')",
+    rc = snprintf(cmd, sizeof(cmd),
+                  "exec procedure sys.cmd.register_replicant_v1('%s', '%s', '%u:%u')",
                   gbl_dbname, gbl_myhostname, info.file, info.offset);
 
-    if (rc < 0 || rc >= sql_len) {
+    if (rc < 0 || rc >= sizeof(cmd)) {
         logmsg(LOGMSG_ERROR, "lua call buffer is not long enough!\n");
     }
 
@@ -377,12 +376,13 @@ static int register_self()
 
         if ((rc = cdb2_open(&cluster, cnct->dbname, cnct->hostname,
                             CDB2_DIRECT_CPU)) == 0) {
-
             cnct->last_cnct = time(NULL);
             cnct->is_up = 1;
             curr_cnct = cnct;
             max_tier = 0;
-            if ((rc = cdb2_run_statement(cluster, get_tier)) == CDB2_OK) {
+            logmsg(LOGMSG_USER, "physical replicant: %s\n", cmd);
+            int candidate_leaders_count = 0;
+            if ((rc = cdb2_run_statement(cluster, cmd)) == CDB2_OK) {
                 while ((rc = cdb2_next_record(cluster)) == CDB2_OK) {
                     int64_t tier = *(int64_t *)cdb2_column_value(cluster, 0);
                     curr_tier =
@@ -390,10 +390,15 @@ static int register_self()
                     char *dbname = (char *)cdb2_column_value(cluster, 1);
                     char *hostname = (char *)cdb2_column_value(cluster, 2);
                     insert_connect(hostname, dbname, tier);
+                    ++ candidate_leaders_count;
                 }
-                cdb2_close(cluster);
                 last_register = time(NULL);
-                return 0;
+
+                if (candidate_leaders_count > 0) {
+                    cdb2_close(cluster);
+                    return 0;
+                }
+                logmsg(LOGMSG_USER, "No candidate leaders! retrying registration in a second\n");
             } else {
                 logmsg(LOGMSG_ERROR, "%s query statement returned %d\n",
                        __func__, rc);
@@ -409,8 +414,6 @@ static int register_self()
     logmsg(LOGMSG_WARN, "Been told to stop replicating\n");
     return 1;
 }
-
-int gbl_physrep_reconnect_penalty = 5;
 
 static int seedsort(const void *arg1, const void *arg2)
 {
@@ -471,13 +474,49 @@ static int find_new_repl_db(void)
                     if ((rc = cdb2_open(&repl_db, cnct->dbname, cnct->hostname,
                                         CDB2_DIRECT_CPU)) == 0 &&
                         (rc = cdb2_run_statement(repl_db, "select 1")) ==
-                            CDB2_OK) {
+                        CDB2_OK) {
                         while (cdb2_next_record(repl_db) == CDB2_OK)
-                            ;
+                          ;
                         logmsg(LOGMSG_INFO,
                                "Attached to '%s' db '%s' for replication\n",
                                cnct->hostname, cnct->dbname);
 
+                        /* Execute sys.cmd.confirm_registration() on the cluster */
+                        DB_Connection *cluster_cnct;
+                        cdb2_hndl_tp *cluster;
+                        char cmd[120];
+                        snprintf(cmd, sizeof(cmd),
+                                 "exec procedure sys.cmd.confirm_registration"
+                                 "('%s', '%s', '%s', '%s')",
+                                  gbl_dbname, gbl_myhostname, cnct->dbname,
+                                  cnct->hostname);
+
+                        while (do_repl) {
+                            /* tier 0 is the cluster */
+                            if ((cluster_cnct = get_rand_connect(0)) == NULL) {
+                                logmsg(LOGMSG_FATAL, "Physical replicant cannot find cluster\n");
+                                abort();
+                            }
+
+                            logmsg(LOGMSG_USER, "Physical replicant: connecting to %s:%s\n", cluster_cnct->dbname, cluster_cnct->hostname);
+
+                            if ((rc = cdb2_open(&cluster, cluster_cnct->dbname,
+                                                cluster_cnct->hostname,
+                                                CDB2_DIRECT_CPU)) == 0) {
+                                logmsg(LOGMSG_USER, "physical replicant: %s\n", cmd);
+                                rc = cdb2_run_statement(cluster, cmd);
+                                if (rc == CDB2_OK) {
+                                    while (cdb2_next_record(repl_db) == CDB2_OK);
+                                    break;
+                                } else if (gbl_verbose_physrep) {
+                                    logmsg(LOGMSG_USER, "Physical replicant: failed to exec sys.cmd.confirm_registration() on  %s:%s\n", cluster_cnct->dbname, cluster_cnct->hostname);
+                                }
+                                cdb2_close(cluster);
+                            } else if (gbl_verbose_physrep) {
+                                logmsg(LOGMSG_USER, "Physical replicant: failed to open connection to %s:%s\n", cluster_cnct->dbname, cluster_cnct->hostname);
+                            }
+                            sleep(1);
+                        }
                         cnct->last_cnct = time(NULL);
                         cnct->is_up = 1;
                         curr_cnct = cnct;
@@ -561,6 +600,7 @@ static DB_Connection *get_rand_connect(size_t tier)
 
 static int insert_connect(char *hostname, char *dbname, size_t tier)
 {
+    logmsg(LOGMSG_USER, "physical replicant: %s:%s\n", hostname, dbname);
     if (cnct_len == NULL) {
         tier_len = 4;
         cnct_len = calloc(tier_len, sizeof(*cnct_len));

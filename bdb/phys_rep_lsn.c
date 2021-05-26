@@ -40,10 +40,11 @@ LOG_INFO get_last_lsn(bdb_state_type *bdb_state)
         logc->close(logc, 0);
         return log_info;
     }
-
+#if 0
     if (gbl_verbose_physrep)
         logmsg(LOGMSG_USER, "%s: LSN %u:%u\n", __func__, last_log_lsn.file,
                last_log_lsn.offset);
+#endif
 
     log_info.file = last_log_lsn.file;
     log_info.offset = last_log_lsn.offset;

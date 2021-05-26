@@ -598,6 +598,20 @@ static int db_comdb_delete_sc_history(Lua L)
     return 1;
 }
 
+static int gbl_physrep_gen;
+
+static int db_comdb_get_physrep_gen(Lua L)
+{
+    lua_pushinteger(L, gbl_physrep_gen);
+    return 1;
+}
+
+static int db_comdb_inc_physrep_gen(Lua L)
+{
+    ++ gbl_physrep_gen;
+    return 0;
+}
+
 static const luaL_Reg sys_funcs[] = {
     { "cluster", db_cluster },
     { "comdbg_tables", db_comdbg_tables },
@@ -612,6 +626,8 @@ static const luaL_Reg sys_funcs[] = {
     { "stop_replication", db_comdb_stop_replication },
     { "register_replicant", db_comdb_register_replicant },
     { "delete_sc_history", db_comdb_delete_sc_history },
+    { "get_physrep_gen", db_comdb_get_physrep_gen },
+    { "inc_physrep_gen", db_comdb_inc_physrep_gen },
     { NULL, NULL }
 }; 
 
@@ -811,6 +827,84 @@ static struct sp_source syssps[] = {
         "  else\n"
         "    db:emit('Failed to delete from sc_history for tablename '..t)\n"
         "  end \n"
+        "end\n",
+        NULL
+    }
+    ,{
+        "sys.cmd.register_replicant_v1",
+        "local function main(dbname, machname, lsn)\n"
+        "    local N = 2\n"
+        "    local replicant_tier = 1\n"
+        "    local candidate_leaders_count = 0\n"
+        "    local gen = sys.get_physrep_gen()\n"
+	"    db:exec(\"delete from comdb2_physreps where dbname = '\" ..  dbname .. \"' and host = '\" .. machname .. \"'\")\n"
+	"    db:exec(\"delete from comdb2_physrep_connections where dbname = '\" ..  dbname .. \"' and host = '\" .. machname .. \"'\")\n"
+        "    local rs, rc = db:exec(\"select count(*) as reps from comdb2_physreps where tier = \" .. replicant_tier)\n"
+        "    local res = rs:fetch()\n"
+        "    print(\"register_replicant_v1: number of replicants in tier 1: \" .. res.reps)\n"
+        "\n"
+        "    if res.reps < (N*1) and gen == sys.get_physrep_gen() then\n"
+        "        print(\"register_replicant_v1: requesting replicant to join tier 1\")\n"
+        "        -- TODO: Sort the hosts in decreasing order of # of replicants that they are serving\n"
+        "        local rs, rc = db:exec(\"select 0, comdb2_dbname(), host from comdb2_cluster\")\n"
+        "        local row = rs:fetch()\n"
+        "        while row do\n"
+        "            candidate_leaders_count = candidate_leaders_count + 1\n"
+        "            db:emit(row)\n"
+        "            row = rs:fetch()\n"
+        "        end\n"
+        "    else\n"
+        "        replicant_tier = 2\n"
+	"        local rs, rc = db:exec(\"select count(*) as reps from comdb2_physreps where tier = \" .. replicant_tier)\n"
+        "        local res = rs:fetch()\n"
+	"        print(\"register_replicant_v1: number of replicants in tier 2: \" .. res.reps)\n"
+        "\n"
+        "        if res.reps < (N*2) and gen  == sys.get_physrep_gen() then\n"
+        "            print(\"register_replicant_v1: requesting replicant to join tier 2\")\n"
+	"    	     local rs, rc = db:exec(\"select tier, dbname, host from comdb2_physreps where tier = 1 and dbname not in ('\" .. dbname .. \"') and state not in (\'PENDING\')\")\n"
+        "            local row = rs:fetch()\n"
+        "            while row do\n"
+        "                candidate_leaders_count = candidate_leaders_count + 1\n"
+        "                db:emit(row)\n"
+        "                row = rs:fetch()\n"
+        "            end\n"
+        "        else\n"
+        "            -- TODO: Handle other tiers\n"
+        "        end\n"
+        "    end\n"
+        "    if candidate_leaders_count > 0 then \n"
+	"        db:exec(\"replace into comdb2_physreps(dbname, host, tier, state) values ('\" ..  dbname .. \"', '\" .. machname .. \"', \" .. replicant_tier .. \", \'PENDING\')\")\n"
+        "    end\n"
+        "    if gen ~= sys.get_physrep_gen() then\n"
+        "        print(\"register_replicant_v1: physrep genid different! returned leader count: \" .. candidate_leaders_count)\n"
+        "    end\n"
+        "    sys.inc_physrep_gen()\n"
+        "end\n",
+        NULL
+    }
+    ,{
+        "sys.cmd.confirm_registration",
+        "local function main(dbname, machname, source_dbname, source_machname)\n"
+        "    local tier = -1\n"
+        "    local rs, rc = db:exec(\"select comdb2_dbname() as dbname\")\n"
+        "    local res = rs:fetch()\n"
+        "    if source_dbname == res.dbname then\n"
+        "        local rs, rc = db:exec(\"select count(*) as cnt from comdb2_cluster where host = '\" .. source_machname .. \"'\")\n"
+        "        local res = rs:fetch()\n"
+        "        if res.cnt >= 1 then\n"
+        "            tier = 0\n"
+        "        end\n"
+        "    end\n"
+        "\n"
+        "    if tier == -1 then\n"
+	"        local rs, rc = db:exec(\"select tier from comdb2_physreps where dbname = '\" .. source_dbname .. \"' and host = '\" .. source_machname .. \"'\")"
+        "        local res = rs:fetch()\n"
+        "        tier = res.tier\n"
+        "    end\n"
+        "\n"
+	"    db:exec(\"replace into comdb2_physreps(dbname, host, tier, state) values ('\" ..  source_dbname .. \"', '\" .. source_machname .. \"', \" .. tier .. \", \'ACTIVE\')\")\n"
+	"    db:exec(\"replace into comdb2_physreps(dbname, host, tier, state) values ('\" ..  dbname .. \"', '\" .. machname .. \"', \" .. tier+1 .. \", \'ACTIVE\')\")\n"
+	"    db:exec(\"replace into comdb2_physrep_connections values ('\" .. dbname .. \"', '\" .. machname .. \"', '\" .. source_dbname .. \"', '\" .. source_machname .. \"')\")\n"
         "end\n",
         NULL
     }

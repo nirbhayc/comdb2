@@ -23,6 +23,7 @@
 #include <mem_protobuf.h> /* comdb2_malloc_protobuf */
 #include <sql.h>
 #include <str0.h>
+void free_original_normalized_sql(struct sqlclntstate *);
 
 #ifndef container_of
 /* I'm requiring that pointer variable and struct member have the same name */
@@ -749,6 +750,8 @@ static int handle_newsql_request(comdb2_appsock_arg_t *arg)
         APPDATA->sqlquery = sql_query;
         clnt.sql = sql_query->sql_query;
         clnt.added_to_hist = 0;
+
+        free_original_normalized_sql(&clnt);
 
         if (!in_client_trans(&clnt)) {
             bzero(&clnt.effects, sizeof(clnt.effects));
