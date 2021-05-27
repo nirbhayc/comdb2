@@ -21,6 +21,7 @@
 #include <unistd.h>
 #include <uuid/uuid.h>
 #include <memcompare.c>
+#include <zlib.h>
 #include "comdb2.h"
 #include "sql.h"
 #include "bdb_int.h"
@@ -1143,6 +1144,100 @@ static void comdb2UserFunc(
 
   sqlite3_result_text(context, get_current_user(get_sql_clnt()), -1,
                       SQLITE_STATIC);
+}
+
+static void compressFunc(
+  sqlite3_context *context,
+  int argc,
+  sqlite3_value **argv
+  ){
+    const unsigned char *uncomprData;
+    unsigned char *comprData;
+    unsigned int uncomprLen;
+    uLongf comprLen;
+    int rc;
+
+    int type = sqlite3_value_type(argv[0]);
+
+    switch (type) {
+        case SQLITE_TEXT:
+            uncomprData = sqlite3_value_text(argv[0]);
+            uncomprLen = strlen((char*) uncomprData);
+            break;
+
+        case SQLITE_BLOB:
+            uncomprData = sqlite3_value_blob(argv[0]);
+            uncomprLen = sqlite3_value_bytes(argv[0]);
+            break;
+
+        default:
+            return;
+    }
+
+    comprLen = uncomprLen * 1.001 + 12;
+    comprData = (unsigned char *)contextMalloc(context, comprLen+4);
+    if (comprData) {
+      rc = compress(comprData+4, &comprLen, uncomprData, uncomprLen);
+      if (rc != Z_OK) {
+        logmsg(LOGMSG_ERROR, "%s:%d compress2() failed with rc: %d\n",
+               __func__, __LINE__, rc);
+        return;
+      }
+      memcpy(comprData, &uncomprLen, sizeof(unsigned int));
+      sqlite3_result_blob(context, comprData, comprLen+4, free);
+    }
+    return;
+}
+
+static void uncompressFunc(
+  sqlite3_context *context,
+  int argc,
+  sqlite3_value **argv
+  ){
+    const unsigned char *comprData;
+    unsigned char *uncomprData;
+    unsigned int comprLen;
+    uLongf uncomprLen;
+    int rc;
+
+    int type = sqlite3_value_type(argv[0]);
+
+    switch (type) {
+        case SQLITE_TEXT:
+            comprData = sqlite3_value_text(argv[0]);
+            comprLen = strlen((char*) comprData);
+            break;
+
+        case SQLITE_BLOB:
+            comprData = sqlite3_value_blob(argv[0]);
+            comprLen = sqlite3_value_bytes(argv[0]);
+            break;
+
+        default:
+            return;
+    }
+
+    unsigned int len;
+    memcpy(&len, comprData, sizeof(unsigned int));
+    uncomprLen = (uLongf)len;
+
+    if (uncomprLen == 0) {
+      char dummy[1] = {0};
+      sqlite3_result_blob(context, dummy, uncomprLen, SQLITE_TRANSIENT);
+      return;
+    }
+
+    uncomprData = (unsigned char *)contextMalloc(context, uncomprLen);
+    if (uncomprData) {
+      rc = uncompress(uncomprData, &uncomprLen, comprData+4, comprLen-4);
+      if (rc != Z_OK) {
+        logmsg(LOGMSG_ERROR, "%s:%d uncompress() failed with rc: %d\n",
+               __func__, __LINE__, rc);
+        return;
+      }
+      sqlite3_result_blob(context, uncomprData, uncomprLen, free);
+    }
+    return;
 }
 
 #endif /* defined(SQLITE_BUILDING_FOR_COMDB2) */
@@ -2804,8 +2899,9 @@ void sqlite3RegisterBuiltinFunctions(void){
     FUNCTION(comdb2_prevquerycost,  0, 0, 0, comdb2PrevquerycostFunc),
     FUNCTION(comdb2_starttime,      0, 0, 0, comdb2StartTimeFunc),
     FUNCTION(comdb2_user,           0, 0, 0, comdb2UserFunc),
-
     FUNCTION(checksum_md5,          1, 0, 0, md5Func),
+    FUNCTION(compress,              1, 0, 0, compressFunc),
+    FUNCTION(uncompress,            1, 0, 0, uncompressFunc),
 #if defined(SQLITE_BUILDING_FOR_COMDB2_DBGLOG)
     FUNCTION(dbglog_cookie,         0, 0, 0, dbglogCookieFunc),
     FUNCTION(dbglog_begin,          1, 0, 0, dbglogBeginFunc),
