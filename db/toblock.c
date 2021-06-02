@@ -2915,11 +2915,13 @@ static int toblock_main_int(struct javasp_trans_state *javasp_trans_handle,
         }
         iq->p_buf_in = p_buf_in_saved;
 
-        for (opnum = 0; opnum < NUM_BLOCKOP_OPCODES; opnum++) {
-            if (opcode_counts[opnum] > 0) {
-                reqlog_logf(iq->reqlogger, REQL_INFO, "%dx%s",
-                            opcode_counts[opnum],
-                            gbl_blockop_name_xrefs[opnum]);
+        if (iq->reqlogger) {
+            for (opnum = 0; opnum < NUM_BLOCKOP_OPCODES; opnum++) {
+                if (opcode_counts[opnum] > 0) {
+                    reqlog_logf(iq->reqlogger, REQL_INFO, "%dx%s",
+                                opcode_counts[opnum],
+                                gbl_blockop_name_xrefs[opnum]);
+                }
             }
         }
     } else {
