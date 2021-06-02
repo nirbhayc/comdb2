@@ -2054,6 +2054,7 @@ void comdb2_dump_blockers(DB_ENV *dbenv)
 	u_int32_t ndx;
 	u_int32_t partition;
 	int ret;
+        uint8_t no_blockers = 1;
 
 	lt = dbenv->lk_handle;
 	region = lt->reginfo.primary;
@@ -2064,20 +2065,20 @@ void comdb2_dump_blockers(DB_ENV *dbenv)
 
 	ret = __lock_getobj(lt, &gbl_rep_lockobj.obj, ndx, partition, 0, &obj);
 
-	if (ret != 0 || !obj) {
-		unlock_obj_partition(region, partition);
-		return;
-	}
-
-	for (hlp = SH_TAILQ_FIRST(&obj->holders, __db_lock);
-		hlp != NULL; hlp = SH_TAILQ_NEXT(hlp, links, __db_lock))
-	{
-		comdb2_dump_blocker(hlp->holderp->id);
-	}
+        if (ret == 0 && obj != NULL) {
+            for (hlp = SH_TAILQ_FIRST(&obj->holders, __db_lock);
+                    hlp != NULL; hlp = SH_TAILQ_NEXT(hlp, links, __db_lock))
+            {
+                    comdb2_dump_blocker(hlp->holderp->id);
+            }
+        }
 
 	unlock_obj_partition(region, partition);
-}
 
+        if (no_blockers) {
+            logmsg(LOGMSG_USER,  "(empty)");
+        }
+}
 
 #define ADD_TO_HOLDARR(x)                                                      \
 	do {                                                                   \
