@@ -164,15 +164,6 @@ int add_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
         prefixes++;
     }
 
-    if (!is_event_from_sc(flags)) {
-        iq->written_row_count++;
-        if (gbl_max_wr_rows_per_txn && (iq->written_row_count > gbl_max_wr_rows_per_txn)) {
-            reqerrstr(iq, COMDB2_CSTRT_RC_TRN_TOO_BIG,
-                      "Transaction exceeds max rows limit");
-            retrc = ERR_TRAN_TOO_BIG;
-            ERR;
-        }
-    }
     if (is_event_from_cascade(flags)) {
         iq->cascaded_row_count++;
         if (gbl_max_cascaded_rows_per_txn && (iq->cascaded_row_count > gbl_max_cascaded_rows_per_txn)) {
@@ -183,35 +174,43 @@ int add_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
         }
     }
 
-    if (is_event_from_sc(flags) &&
-        ((gbl_partial_indexes && iq->usedb->ix_partial) ||
-         (gbl_expressions_indexes && iq->usedb->ix_expr))) {
-        int ixnum;
-        int rebuild_keys = 0;
-        if (!gbl_use_plan || !iq->usedb->plan)
-            rebuild_keys = 1;
-        else {
-            for (ixnum = 0; ixnum < iq->usedb->nix; ixnum++) {
-                if (iq->usedb->plan->ix_plan[ixnum] == -1) {
-                    rebuild_keys = 1;
-                    break;
+    if (unlikely(is_event_from_sc(flags))) {
+        if ((gbl_partial_indexes && iq->usedb->ix_partial) ||
+            (gbl_expressions_indexes && iq->usedb->ix_expr)) {
+            int ixnum;
+            int rebuild_keys = 0;
+            if (!gbl_use_plan || !iq->usedb->plan)
+                rebuild_keys = 1;
+            else {
+                for (ixnum = 0; ixnum < iq->usedb->nix; ixnum++) {
+                    if (iq->usedb->plan->ix_plan[ixnum] == -1) {
+                        rebuild_keys = 1;
+                        break;
+                    }
                 }
             }
-        }
-        if (rebuild_keys) {
-            if (iq->idxInsert || iq->idxDelete) {
-                free_cached_idx(iq->idxInsert);
-                free_cached_idx(iq->idxDelete);
-                free(iq->idxInsert);
-                free(iq->idxDelete);
-                iq->idxInsert = iq->idxDelete = NULL;
+            if (rebuild_keys) {
+                if (iq->idxInsert || iq->idxDelete) {
+                    free_cached_idx(iq->idxInsert);
+                    free_cached_idx(iq->idxDelete);
+                    free(iq->idxInsert);
+                    free(iq->idxDelete);
+                    iq->idxInsert = iq->idxDelete = NULL;
+                }
+                ins_keys = -1ULL;
             }
-            ins_keys = -1ULL;
         }
-    }
+    } else { // !is_event_from_sc(flags))
 
-    if (!is_event_from_sc(flags)) { // dont sleep if adding from SC
+        iq->written_row_count++;
+        if (gbl_max_wr_rows_per_txn && (iq->written_row_count > gbl_max_wr_rows_per_txn)) {
+            reqerrstr(iq, COMDB2_CSTRT_RC_TRN_TOO_BIG,
+                      "Transaction exceeds max rows limit");
+            retrc = ERR_TRAN_TOO_BIG;
+            ERR;
+        }
 
+        // Don't sleep if adding from SC
         int d_ms = BDB_ATTR_GET(thedb->bdb_attr, DELAY_WRITES_IN_RECORD_C);
         if (d_ms) {
             if (iq->debug)
@@ -221,25 +220,25 @@ int add_record(struct ireq *iq, void *trans, const uint8_t *p_buf_tag_name,
             if (lrc)
                 reqprintf(iq, "usleep error rc %d errno %d\n", rc, errno);
         }
-    }
 
-    if (!is_event_from_sc(flags) && !(flags & RECFLAGS_DONT_LOCK_TBL)) {
-        // dont lock table if adding from SC or if RECFLAGS_DONT_LOCK_TBL
-        assert(!iq->sorese); // sorese codepaths will have locked it already
+        if (!(flags & RECFLAGS_DONT_LOCK_TBL)) {
+            // Don't lock table if adding from SC or if RECFLAGS_DONT_LOCK_TBL
+            assert(!iq->sorese); // sorese codepaths will have locked it already
 
-        reqprintf(iq, "Calling bdb_lock_table_read()");
-        rc = bdb_lock_table_read(iq->usedb->handle, trans);
-        if (rc == BDBERR_DEADLOCK) {
-            if (iq->debug)
-                reqprintf(iq, "LOCK TABLE READ DEADLOCK");
-            retrc = RC_INTERNAL_RETRY;
-            ERR;
-        } else if (rc) {
-            if (iq->debug)
-                reqprintf(iq, "LOCK TABLE READ ERROR: %d", rc);
-            *opfailcode = OP_FAILED_INTERNAL;
-            retrc = ERR_INTERNAL;
-            ERR;
+            reqprintf(iq, "Calling bdb_lock_table_read()");
+            rc = bdb_lock_table_read(iq->usedb->handle, trans);
+            if (rc == BDBERR_DEADLOCK) {
+                if (iq->debug)
+                    reqprintf(iq, "LOCK TABLE READ DEADLOCK");
+                retrc = RC_INTERNAL_RETRY;
+                ERR;
+            } else if (rc) {
+                if (iq->debug)
+                    reqprintf(iq, "LOCK TABLE READ ERROR: %d", rc);
+                *opfailcode = OP_FAILED_INTERNAL;
+                retrc = ERR_INTERNAL;
+                ERR;
+            }
         }
     }
 
